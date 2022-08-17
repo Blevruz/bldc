@@ -32,7 +32,11 @@
 #include "crc.h"
 #include "packet.h"
 #include "hw.h"
+#ifdef USE_CANOPEN
+#include "EvoCANopen_driver.h"
+#else
 #include "canard_driver.h"
+#endif
 #include "encoder/encoder.h"
 #include "utils_sys.h"
 #include "mempools.h"
@@ -43,6 +47,7 @@
 #ifdef USE_LISPBM
 #include "lispif.h"
 #endif
+
 
 // Settings
 #define RX_FRAMES_SIZE	50

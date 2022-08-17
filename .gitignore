@@ -4,6 +4,9 @@ build
 tools
 downloads
 
+CMake*
+*.a
+
 .dep
 .project
 .cproject

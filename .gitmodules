@@ -1,0 +1,4 @@
+[submodule "libEvoCANopen"]
+	path = libEvoCANopen
+	url = https://gitlab.evologics.de/mcu/libEvoCANopen.git
+	branch = tmp/generic_libEvoCANopen
