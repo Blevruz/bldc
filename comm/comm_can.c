@@ -33,7 +33,9 @@
 #include "packet.h"
 #include "hw.h"
 #ifdef USE_CANOPEN
-#include "EvoCANopen_driver.h"
+#include "co_core.h"
+	//TODO: add CAN, Timer and NVM driver includes
+#include "co_can_chos.h"
 #else
 #include "canard_driver.h"
 #endif
@@ -124,6 +126,27 @@ static void send_packet_wrapper(unsigned char *data, unsigned int len);
 static void decode_msg(uint32_t eid, uint8_t *data8, int len, bool is_replaced);
 #endif
 
+#ifdef USE_CANOPEN
+static CO_NODE co_node;
+static struct CO_IF_DRV_T AppDriver = {
+    &ChOSCanDriver,
+    &ChOSTimerDriver,
+    &ChOSNvmDriver
+};
+extern struct CO_NODE_SPEC_T co_node_spec = {
+    APP_NODE_ID,             /* TODO: default Node-Id                */
+    APPCONF_CAN_BAUD_RATE,   /* default Baudrate                     */
+    &ClockOD[0],             /* TODO: pointer to object dictionary   */
+    APP_OBJ_N,               /* TODO: object dictionary max length   */
+    &AppEmcyTbl[0],          /* TODO: EMCY code & register bit table */
+    &TmrMem[0],              /* TODO: pointer to timer memory blocks */
+    APP_TMR_N,               /* TODO: number of timer memory blocks  */
+    APP_TICKS_PER_SEC,       /* TODO: timer clock frequency in Hz    */
+    &AppDriver,              /* TODO: select drivers for application */
+    &SdoSrvMem[0]            /* TODO: SDO Transfer Buffer Memory     */
+};
+#endif
+
 // Function pointers
 static bool(*sid_callback)(uint32_t id, uint8_t *data, uint8_t len) = 0;
 static bool(*eid_callback)(uint32_t id, uint8_t *data, uint8_t len) = 0;
@@ -183,7 +206,16 @@ void comm_can_init(void) {
 	canStart(&HW_CAN_DEV, &cancfg);
 #endif
 
+#ifdef USE_CANOPEN
+	CONodeInit(&co_node, &co_node_spec);
+	if (CONodeGetErr(&co_node) != CO_ERR_NONE) {
+		while(1);
+	}
+	CONodeStart(&co_node);
+	
+#else
 	canard_driver_init();
+#endif
 
 	chThdCreateStatic(cancom_read_thread_wa, sizeof(cancom_read_thread_wa), NORMALPRIO + 1,
 			cancom_read_thread, NULL);

@@ -2,3 +2,6 @@
 	path = libEvoCANopen
 	url = https://gitlab.evologics.de/mcu/libEvoCANopen.git
 	branch = tmp/generic_libEvoCANopen
+[submodule "canopen-stack"]
+	path = canopen-stack
+	url = https://github.com/embedded-office/canopen-stack.git

@@ -4,6 +4,7 @@
 #
 
 USE_LISPBM=1
+USE_CANOPEN=yes
 
 # Compiler options here.
 ifeq ($(USE_OPT),)
@@ -106,10 +107,10 @@ include $(CHIBIOS)/os/rt/ports/ARMCMx/compilers/GCC/mk/port_v7m.mk
 include hwconf/hwconf.mk
 include applications/applications.mk
 include libcanard/canard.mk
+include canopen-stack/canopen.mk
 include imu/imu.mk
 include blackmagic/blackmagic.mk
 include encoder/encoder.mk
-#include libEvoCANopen/EvoCANopen.mk
 
 
 ifeq ($(USE_LISPBM),1)
@@ -142,6 +143,7 @@ CSRC = $(STARTUPSRC) \
        $(HWSRC) \
        $(APPSRC) \
        $(CANARDSRC) \
+       $(CANOPENSRC) \
        $(IMUSRC) \
        $(BLACKMAGICSRC) \
        qmlui/qmlui.c \
@@ -185,6 +187,7 @@ INCDIR = $(STARTUPINC) $(KERNINC) $(PORTINC) $(OSALINC) \
          $(HWINC) \
          $(APPINC) \
          $(CANARDINC) \
+         $(CANOPENINC) \
          $(IMUINC) \
          $(BLACKMAGICINC) \
          qmlui \
@@ -275,6 +278,10 @@ ifeq ($(USE_FWLIB),yes)
   CSRC += $(STM32SRC)
   INCDIR += $(STM32INC)
   USE_OPT += -DUSE_STDPERIPH_DRIVER
+endif
+
+ifeq ($(USE_CANOPEN),yes)
+  USE_OPT += -DUSE_CANOPEN
 endif
 
 RULESPATH = $(CHIBIOS)/os/common/ports/ARMCMx/compilers/GCC
