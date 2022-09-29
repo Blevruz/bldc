@@ -56,6 +56,9 @@ void app_set_configuration(app_configuration *conf) {
 	app_nunchuk_stop();
 	app_balance_stop();
 	app_pas_stop();
+#ifdef USE_CANOPEN
+	app_canopen_test_stop();
+#endif
 
 	if (!conf_general_permanent_nrf_found) {
 		nrf_driver_stop();
@@ -135,6 +138,12 @@ void app_set_configuration(app_configuration *conf) {
 			rfhelp_restart();
 		}
 		break;
+
+#ifdef USE_CANOPEN
+	case APP_CANOPEN_TEST:
+		app_canopen_test_start();
+		break;
+#endif
 
 	case APP_CUSTOM:
 #ifdef APP_CUSTOM_TO_USE

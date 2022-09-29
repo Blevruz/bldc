@@ -112,7 +112,6 @@ include imu/imu.mk
 include blackmagic/blackmagic.mk
 include encoder/encoder.mk
 
-
 ifeq ($(USE_LISPBM),1)
   include lispBM/lispbm.mk
   USE_OPT += -DUSE_LISPBM
@@ -143,7 +142,6 @@ CSRC = $(STARTUPSRC) \
        $(HWSRC) \
        $(APPSRC) \
        $(CANARDSRC) \
-       $(CANOPENSRC) \
        $(IMUSRC) \
        $(BLACKMAGICSRC) \
        qmlui/qmlui.c \
@@ -187,7 +185,7 @@ INCDIR = $(STARTUPINC) $(KERNINC) $(PORTINC) $(OSALINC) \
          $(HWINC) \
          $(APPINC) \
          $(CANARDINC) \
-         $(CANOPENINC) \
+	 $(CANOPENINC) \
          $(IMUINC) \
          $(BLACKMAGICINC) \
          qmlui \
@@ -267,7 +265,7 @@ UINCDIR =
 ULIBDIR =
 
 # List all user libraries here
-ULIBS = -lm -lEvoCANopen
+ULIBS = -lm
 
 #
 # End of user defines
@@ -281,6 +279,7 @@ ifeq ($(USE_FWLIB),yes)
 endif
 
 ifeq ($(USE_CANOPEN),yes)
+  CSRC += $(CANOPENSRC)
   USE_OPT += -DUSE_CANOPEN
 endif
 

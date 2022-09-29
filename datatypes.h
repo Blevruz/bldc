@@ -544,7 +544,8 @@ typedef enum {
 	APP_CUSTOM,
 	APP_BALANCE,
 	APP_PAS,
-	APP_ADC_PAS
+	APP_ADC_PAS,
+	APP_CANOPEN_TEST
 } app_use;
 
 // Throttle curve mode

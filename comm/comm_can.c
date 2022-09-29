@@ -32,13 +32,11 @@
 #include "crc.h"
 #include "packet.h"
 #include "hw.h"
-#ifdef USE_CANOPEN
-#include "co_core.h"
-	//TODO: add CAN, Timer and NVM driver includes
-#include "co_can_chos.h"
+#ifdef	USE_CANOPEN
+#include "canopen_driver.h"
 #else
 #include "canard_driver.h"
-#endif
+#endif	//USE_CANOPEN
 #include "encoder/encoder.h"
 #include "utils_sys.h"
 #include "mempools.h"
@@ -49,7 +47,6 @@
 #ifdef USE_LISPBM
 #include "lispif.h"
 #endif
-
 
 // Settings
 #define RX_FRAMES_SIZE	50
@@ -126,27 +123,6 @@ static void send_packet_wrapper(unsigned char *data, unsigned int len);
 static void decode_msg(uint32_t eid, uint8_t *data8, int len, bool is_replaced);
 #endif
 
-#ifdef USE_CANOPEN
-static CO_NODE co_node;
-static struct CO_IF_DRV_T AppDriver = {
-    &ChOSCanDriver,
-    &ChOSTimerDriver,
-    &ChOSNvmDriver
-};
-extern struct CO_NODE_SPEC_T co_node_spec = {
-    APP_NODE_ID,             /* TODO: default Node-Id                */
-    APPCONF_CAN_BAUD_RATE,   /* default Baudrate                     */
-    &ClockOD[0],             /* TODO: pointer to object dictionary   */
-    APP_OBJ_N,               /* TODO: object dictionary max length   */
-    &AppEmcyTbl[0],          /* TODO: EMCY code & register bit table */
-    &TmrMem[0],              /* TODO: pointer to timer memory blocks */
-    APP_TMR_N,               /* TODO: number of timer memory blocks  */
-    APP_TICKS_PER_SEC,       /* TODO: timer clock frequency in Hz    */
-    &AppDriver,              /* TODO: select drivers for application */
-    &SdoSrvMem[0]            /* TODO: SDO Transfer Buffer Memory     */
-};
-#endif
-
 // Function pointers
 static bool(*sid_callback)(uint32_t id, uint8_t *data, uint8_t len) = 0;
 static bool(*eid_callback)(uint32_t id, uint8_t *data, uint8_t len) = 0;
@@ -207,12 +183,7 @@ void comm_can_init(void) {
 #endif
 
 #ifdef USE_CANOPEN
-	CONodeInit(&co_node, &co_node_spec);
-	if (CONodeGetErr(&co_node) != CO_ERR_NONE) {
-		while(1);
-	}
-	CONodeStart(&co_node);
-	
+	canopen_driver_init();
 #else
 	canard_driver_init();
 #endif
@@ -1269,6 +1240,9 @@ static THD_FUNCTION(cancom_read_thread, arg) {
 			continue;
 		}
 
+#ifdef USE_CANOPEN
+		co_vt_update();
+#else
 		msg_t result = canReceive(&HW_CAN_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 
 		while (result == MSG_OK) {
@@ -1300,6 +1274,7 @@ static THD_FUNCTION(cancom_read_thread, arg) {
 			result = canReceive(&HW_CAN2_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 		}
 #endif
+#endif	//USE_CANOPEN
 	}
 
 	chEvtUnregister(&HW_CAN_DEV.rxfull_event, &el);

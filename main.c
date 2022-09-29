@@ -312,11 +312,13 @@ int main(void) {
 #endif
 
 #ifdef CAN_ENABLE
+#ifndef USE_CANOPEN
 	// Transmit a CAN boot-frame to notify other nodes on the bus about it.
 	comm_can_transmit_eid(
 		app_get_configuration()->controller_id | (CAN_PACKET_NOTIFY_BOOT << 8),
 		(uint8_t *)HW_NAME, (strlen(HW_NAME) <= CAN_FRAME_MAX_PL_SIZE) ?
 		strlen(HW_NAME) : CAN_FRAME_MAX_PL_SIZE);
+#endif	//USE_CANOPEN
 #endif
 
 	for(;;) {

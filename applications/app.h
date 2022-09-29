@@ -98,4 +98,9 @@ void app_custom_start(void);
 void app_custom_stop(void);
 void app_custom_configure(app_configuration *conf);
 
+// canopen test app
+void app_canopen_test_start(void);
+void app_canopen_test_stop(void);
+void app_canopen_test_configure(app_configuration *conf);
+
 #endif /* APP_H_ */
