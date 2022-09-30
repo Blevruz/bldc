@@ -276,18 +276,9 @@ extern struct CO_NODE_SPEC_T co_node_spec = {
 };
 
 //virtual timer handling
-/*
 virtual_timer_t co_vt;
-static void co_vt_update(void *p) {
+void co_vt_update(void *p) {
 	//TODO: add a way to shut it down
-	//chVTSetI(&co_vt, MS2ST(1), co_vt_update, p);
-	CONodeProcess(&co_node);
-	COTmrProcess(&(co_node.Tmr));
-	COTmrService(&(co_node.Tmr));
-}
-*/
-void co_vt_update() {
-	CONodeProcess(&co_node);
 	COTmrProcess(&(co_node.Tmr));
 	COTmrService(&(co_node.Tmr));
 }
@@ -316,4 +307,6 @@ void	canopen_driver_init() {
 	}
 	CONodeStart(&co_node);
 	CONmtSetMode(&co_node.Nmt, CO_OPERATIONAL);
+	chVTSetI(&co_vt, MS2ST(1), co_vt_update, NULL);
+
 }

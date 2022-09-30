@@ -1241,7 +1241,7 @@ static THD_FUNCTION(cancom_read_thread, arg) {
 		}
 
 #ifdef USE_CANOPEN
-		co_vt_update();
+		CONodeProcess(&co_node);
 #else
 		msg_t result = canReceive(&HW_CAN_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 
