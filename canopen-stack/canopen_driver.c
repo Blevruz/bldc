@@ -225,22 +225,65 @@ static void ODCreateTPDOMap(OD_DYN *self, uint8_t num, uint32_t *map, uint8_t le
     }
 }
 
+//mandatory entries for CiA301 compliance
+#define ODLIST_SIZE 9
+uint32_t ODList [ODLIST_SIZE] = {	CO_KEY(0x1000, 0, CO_UNSIGNED32|CO_OBJ_D__R_),	// Device Type
+                      			CO_KEY(0x1001, 0, CO_UNSIGNED8 |CO_OBJ___PR_),	// Error Register
+                      			CO_KEY(0x1005, 0, CO_UNSIGNED32|CO_OBJ_D__R_),	// COB-ID SYNC
+                      			CO_KEY(0x1017, 0, CO_UNSIGNED16|CO_OBJ_D__R_),	// Heartbeat Producer
+                      			CO_KEY(0x1018, 0, CO_UNSIGNED8 |CO_OBJ_D__R_),	// Identity Object
+                      			CO_KEY(0x1018, 1, CO_UNSIGNED32|CO_OBJ_D__R_),	//  | Vendor ID
+                      			CO_KEY(0x1018, 2, CO_UNSIGNED32|CO_OBJ_D__R_),	//  | Product code
+                      			CO_KEY(0x1018, 3, CO_UNSIGNED32|CO_OBJ_D__R_),	//  | Revision number
+                      			CO_KEY(0x1018, 4, CO_UNSIGNED32|CO_OBJ_D__R_)};	//  | Serial number
+
+#define OD_SIZE 256	//TODO: replace with better value
+
 /* function to setup the quickstart object dictionary */
 static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 {
-    uint32_t map[3];
+
+	//TODO:
+	//[X]	check NVM for any data (should be 0xFFFFFFFF words if not)
+	//[~]	check if that data is an OD (3 word ensembles where the first word is readable as a key?)
+	//[X]	check if that OD contains the necessary entries
+	//[X] 	if so, just return
+	//[ ]	if not:
+	//  |	[ ]	if content is an OD: store in buffer and add necessary entries
+	//  |	[ ]	else erase and write necessary entries
+    
+    int size = sizeof(uint32_t);
+    int matches = 0;
+    int odindex = 0;
+    while (matches < ODLIST_SIZE && odindex < OD_SIZE) {
+	uint32_t buffer;
+	driver->Nvm->Read((odindex)*size, &buffer, size);
+	if (buffer == ODList[matches]) {	//if we found one of our entries, move onto the next
+		matches++;
+		odindex += 3;
+		continue;
+	}
+	if (buffer == 0xFFFFFFFF) break;	//we've reached the end of NVM
+	odindex++;
+    }
+    if (matches == ODLIST_SIZE) return;	//we have a functional minimal OD: nothing to do here
+
+
 
     Obj1001_00_08 = 0;
 
     ODAddUpdate(self, CO_KEY(0x1000, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x00000000), driver);
     ODAddUpdate(self, CO_KEY(0x1001, 0, CO_UNSIGNED8 |CO_OBJ___PR_), 0, (CO_DATA)(&Obj1001_00_08), driver);
-    ODAddUpdate(self, CO_KEY(0x1005, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x80), driver);
+    ODAddUpdate(self, CO_KEY(0x1005, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x80), driver);	//TODO: add node ID to that
     ODAddUpdate(self, CO_KEY(0x1017, 0, CO_UNSIGNED16|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
     ODAddUpdate(self, CO_KEY(0x1018, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(4), driver);
     ODAddUpdate(self, CO_KEY(0x1018, 1, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
     ODAddUpdate(self, CO_KEY(0x1018, 2, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
     ODAddUpdate(self, CO_KEY(0x1018, 3, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
     ODAddUpdate(self, CO_KEY(0x1018, 4, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
+
+    /*
+    uint32_t map[3];
 
     ODCreateSDOServer(self, 0, CO_COBID_SDO_REQUEST(), CO_COBID_SDO_RESPONSE(), driver);
 
@@ -255,6 +298,7 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
     ODAddUpdate(self, CO_KEY(0x2100, 1, CO_UNSIGNED32|CO_OBJ___PR_), 0, (CO_DATA)(&Obj2100_01_20), driver);
     ODAddUpdate(self, CO_KEY(0x2100, 2, CO_UNSIGNED8 |CO_OBJ___PR_), 0, (CO_DATA)(&Obj2100_02_08), driver);
     ODAddUpdate(self, CO_KEY(0x2100, 3, CO_UNSIGNED8 |CO_OBJ___PR_), CO_TASYNC, (CO_DATA)(&Obj2100_03_08), driver);
+    */
 
     ODNvmToBuffer(driver, self);	//we shouldnt have written to NVM by now, but just in case...
     ODBufferToNvm(driver, self);

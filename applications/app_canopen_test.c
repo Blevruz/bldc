@@ -26,6 +26,7 @@
 // Some useful includes
 #include "co_core.h"
 #include "mc_interface.h"
+#include "mcpwm_foc.h"
 #include "utils_math.h"
 #include "encoder/encoder.h"
 #include "terminal.h"
@@ -57,10 +58,9 @@ CO_ERR   ERPMWrite(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 		return CO_ERR_OBJ_SIZE;
 	uint32_t o_data = 0;
 	for (int i = 0; i < 4; i++)
-		//*(uint32_t*)obj->Data += ((uint8_t*)buffer)[3-i] << i*8;
 		o_data += ((uint8_t*)buffer)[3-i] << i*8;
 //	mcpwm_foc_beep(*(float*)obj->Data, 1.0f, 0.5f);
-	mc_interface_set_pid_speed(o_data);
+	mc_interface_set_pid_speed((int32_t)o_data);//motor->m_conf->foc_encoder_ratio);
 	timeout_reset();
 	*(uint32_t*)obj->Data = o_data;
 	return CO_ERR_NONE;
@@ -79,6 +79,7 @@ CO_OBJ_TYPE COTERPM = {
 };
 
 float ERPMFreq = 0;
+float ERPMMeasurement = 0;
 
 #define CO_TERPM ((CO_OBJ_TYPE*)&COTERPM)
 
@@ -110,15 +111,30 @@ void app_canopen_test_start(void) {
 			"[d]",
 			terminal_test);
 
+	// TPDO
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x05), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 1, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, (CO_DATA)(0x00000180 | CO_TPDO_COBID_REMOTE), co_node_spec.Drv);	//see evobldc EDS
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 3, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+				//subindex 4 reserved
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+
+	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x6044, 1, CO_UNSIGNED32	| CO_OBJ____RW), CO_TERPM, (CO_DATA)(&ERPMMeasurement), co_node_spec.Drv);
+
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6044, 1, 32), co_node_spec.Drv);
+
+	// RPDO
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
-	ODAddUpdate(&AppOD, CO_KEY(0x1400, 1, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, (CO_DATA)(0x000000AD), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1400, 1, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, (CO_DATA)(0x00000200), co_node_spec.Drv);	//see evobldc EDS
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
 
-	ODAddUpdate(&AppOD, CO_KEY(0x3141, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
-	ODAddUpdate(&AppOD, CO_KEY(0x3141, 1, CO_UNSIGNED32	| CO_OBJ____RW), CO_TERPM, (CO_DATA)(&ERPMFreq), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x6042, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x6042, 1, CO_UNSIGNED32	| CO_OBJ____RW), CO_TERPM, (CO_DATA)(&ERPMFreq), co_node_spec.Drv);
 
 	ODAddUpdate(&AppOD, CO_KEY(0x1600, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
-	ODAddUpdate(&AppOD, CO_KEY(0x1600, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x3141, 1, 32), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1600, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6042, 1, 32), co_node_spec.Drv);
 	
 	ODNvmToBuffer(co_node_spec.Drv, &AppOD);
 
@@ -181,9 +197,12 @@ static THD_FUNCTION(cot_thread, arg) {
 
 		timeout_reset(); // Reset timeout if everything is OK.
 
+		ERPMMeasurement = mc_interface_get_rpm();
+
+		COTPdoTrigPdo(&co_node.TPdo, 0);
 		// Run your logic here. A lot of functionality is available in mc_interface.h.
 
-		chThdSleepMilliseconds(10);
+		chThdSleepMilliseconds(100);
 	}
 }
 
