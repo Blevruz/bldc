@@ -61,6 +61,8 @@ CO_ERR   ERPMWrite(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 		o_data += ((uint8_t*)buffer)[3-i] << i*8;
 //	mcpwm_foc_beep(*(float*)obj->Data, 1.0f, 0.5f);
 	mc_interface_set_pid_speed((int32_t)o_data);//motor->m_conf->foc_encoder_ratio);
+	if (o_data == 0)
+		mc_interface_set_current_rel(0.0);
 	timeout_reset();
 	*(uint32_t*)obj->Data = o_data;
 	return CO_ERR_NONE;
@@ -79,7 +81,9 @@ CO_OBJ_TYPE COTERPM = {
 };
 
 float ERPMFreq = 0;
-float ERPMMeasurement = 0;
+int16_t ERPMMeasurement = 0;
+int8_t FetTempMeasurement = 0;
+float MotorTempMeasurement = 0;
 
 #define CO_TERPM ((CO_OBJ_TYPE*)&COTERPM)
 
@@ -100,34 +104,49 @@ static volatile bool is_running = false;
 void app_canopen_test_start(void) {
 	mc_interface_set_pwm_callback(pwm_callback);
 
-	stop_now = false;
-	chThdCreateStatic(cot_thread_wa, sizeof(cot_thread_wa),
-			NORMALPRIO, cot_thread, NULL);
-
-	// Terminal commands for the VESC Tool terminal can be registered.
-	terminal_register_command_callback(
-			"canopen_test_cmd",
-			"Print the number d",
-			"[d]",
-			terminal_test);
-
 	// TPDO
+	
+	// TPDO #0: 2 bytes unsigned int status word (unknown), 2 bytes signed int (E?)RPM, 3 bytes unsigned ints various status things
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x05), co_node_spec.Drv);
-	ODAddUpdate(&AppOD, CO_KEY(0x1800, 1, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, (CO_DATA)(0x00000180 | CO_TPDO_COBID_REMOTE), co_node_spec.Drv);	//see evobldc EDS
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000180 | CO_TPDO_COBID_REMOTE), co_node_spec.Drv);	//see evobldc EDS
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 3, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
 				//subindex 4 reserved
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
 
-	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
-	ODAddUpdate(&AppOD, CO_KEY(0x6044, 1, CO_UNSIGNED32	| CO_OBJ____RW), CO_TERPM, (CO_DATA)(&ERPMMeasurement), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x3116, 0, CO_UNSIGNED8	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAA), co_node_spec.Drv);	//status word
+	ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAAAA), co_node_spec.Drv);	//status word
+	
+	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED16	| CO_OBJ____RW), 0, (CO_DATA)(&ERPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement by itself
 
-	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
-	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6044, 1, 32), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(5), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 1, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, CO_LINK(0x6041, 0, 16), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6044, 0, 16), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 3, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, CO_LINK(0x3116, 0, 8), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 4, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, CO_LINK(0x3116, 0, 8), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 5, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, CO_LINK(0x3116, 0, 8), co_node_spec.Drv);
+
+	// TPDO #2: goal: 1 byte humidity (unknown), 1 bytes FET temp, 4 bytes motor temp (float)
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x05), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000380 | CO_TPDO_COBID_REMOTE), co_node_spec.Drv);	//see evobldc EDS
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 3, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+				//subind2x 4 reserved
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+
+	ODAddUpdate(&AppOD, CO_KEY(0x3102, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x03), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x3102, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, (CO_DATA)(0), co_node_spec.Drv);	//Pressure (dummy)
+	ODAddUpdate(&AppOD, CO_KEY(0x3102, 2, CO_UNSIGNED8	| CO_OBJ____RW), 0, (CO_DATA)(&FetTempMeasurement), co_node_spec.Drv);	//Temperature mosfet
+	ODAddUpdate(&AppOD, CO_KEY(0x3102, 3, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&MotorTempMeasurement), co_node_spec.Drv);//Temperature motor
+																	
+	ODAddUpdate(&AppOD, CO_KEY(0x1A02, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x03), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A02, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x3116, 0, 8), co_node_spec.Drv);	// Humidity (dummy)
+	ODAddUpdate(&AppOD, CO_KEY(0x1A02, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x3102, 2, 8), co_node_spec.Drv);	// Fet temperature
+	ODAddUpdate(&AppOD, CO_KEY(0x1A02, 3, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x3102, 3, 32), co_node_spec.Drv);	// Motor Temperature
 
 	// RPDO
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
-	ODAddUpdate(&AppOD, CO_KEY(0x1400, 1, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, (CO_DATA)(0x00000200), co_node_spec.Drv);	//see evobldc EDS
+	ODAddUpdate(&AppOD, CO_KEY(0x1400, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000200), co_node_spec.Drv);	//see evobldc EDS
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
 
 	ODAddUpdate(&AppOD, CO_KEY(0x6042, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
@@ -144,6 +163,17 @@ void app_canopen_test_start(void) {
 
 	CORPdoInit(co_node.RPdo, &co_node);
 	COTPdoInit(co_node.TPdo, &co_node);
+
+	stop_now = false;
+	chThdCreateStatic(cot_thread_wa, sizeof(cot_thread_wa),
+			NORMALPRIO, cot_thread, NULL);
+
+	// Terminal commands for the VESC Tool terminal can be registered.
+	terminal_register_command_callback(
+			"canopen_test_cmd",
+			"Print the number d",
+			"[d]",
+			terminal_test);
 }
 
 // Called when the canopen_test application is stopped. Stop our threads
@@ -197,10 +227,14 @@ static THD_FUNCTION(cot_thread, arg) {
 
 		timeout_reset(); // Reset timeout if everything is OK.
 
-		ERPMMeasurement = mc_interface_get_rpm();
-
-		COTPdoTrigPdo(&co_node.TPdo, 0);
 		// Run your logic here. A lot of functionality is available in mc_interface.h.
+		
+		ERPMMeasurement = mcpwm_foc_get_rpm();//mc_interface_get_rpm();
+		COTPdoTrigPdo(&co_node.TPdo, 0);
+
+		FetTempMeasurement = mc_interface_temp_fet_filtered();
+		MotorTempMeasurement = mc_interface_temp_motor_filtered();
+		COTPdoTrigPdo(&co_node.TPdo, 2);
 
 		chThdSleepMilliseconds(100);
 	}
