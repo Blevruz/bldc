@@ -15,9 +15,9 @@ typedef struct {
 } OD_DYN;
 extern OD_DYN AppOD;
 
-void	canopen_driver_init();
+void	canopen_driver_init(void);
 
-void co_vt_update();
+void co_vt_update(void *p);
 
 int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write);
 
@@ -25,7 +25,7 @@ void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self);
 
 void ODNvmToBuffer(CO_IF_DRV* driver, OD_DYN* self);
 
-void ODClearBuffer();
+void ODClearBuffer(void);
 
 void ODInit (OD_DYN *self, CO_OBJ *root, uint32_t length);
 

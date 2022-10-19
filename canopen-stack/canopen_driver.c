@@ -41,13 +41,9 @@ static uint8_t SdoSrvMem[CO_SSDO_N * CO_SDO_BUF_BYTE];
 /* allocate global variables for runtime value of objects */
 static uint8_t  Obj1001_00_08 = 0;
 
-static uint32_t Obj2100_01_20 = 0;
-static uint8_t  Obj2100_02_08 = 0;
-static uint8_t  Obj2100_03_08 = 0;
-
 #define APP_OBJ_N	256u
 OD_DYN AppOD = {
-	(uint8_t*)NVM_CHOS_ADDRESS,
+	(CO_OBJ*)NVM_CHOS_ADDRESS,
 	APP_OBJ_N,
 	0
 };
@@ -66,6 +62,7 @@ static void ObjCpy(CO_OBJ *a, CO_OBJ *b)
   a->Data = b->Data;
 }
 
+/*
 static void ObjSwap(CO_OBJ *a, CO_OBJ *b)
 {
   CO_OBJ x;
@@ -88,19 +85,23 @@ static int16_t ObjCmp(CO_OBJ *a, CO_OBJ *b)
 
   return (result);
 }
+*/
 
 #define TEMP_BUFFER_SIZE 256
 CO_OBJ  t_buffer[TEMP_BUFFER_SIZE];
-int	t_used = 0;
+uint32_t	t_used = 0;
 
 int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write) {
 #if OD == STATIC
 	driver->Nvm->Write((self->Used++)*sizeof(CO_OBJ), to_write, sizeof(CO_OBJ));
 	return 1;
 #else
+	(void)driver;
+	(void)self;
 	if (t_used < TEMP_BUFFER_SIZE) {
 		t_buffer[t_used++] = *to_write;
 	}
+	return 1;
 #endif
 }
 
@@ -114,25 +115,23 @@ void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self) {
 	FLASH_EraseSector(8 << 3, (uint8_t)((PWR->CSR & PWR_CSR_PVDO) ? VoltageRange_2 : VoltageRange_3));
 		//Note the `8 << 3`; this function doesnt bitshift the sector number
 	FLASH_Lock();
-	/*
-	driver->Nvm->Write(0, t_buffer, t_used*sizeof(CO_OBJ));
-	*/
 	uint32_t used = 0;
 	const unsigned int size = sizeof(CO_OBJ);
 	uint32_t max = 0xFFFFFFFF;
 	uint32_t min = 0;
-	uint32_t ival; int bi;
+	uint32_t ival; int bi = -1;
 	while (t_used > used) {
-		for (int i = 0; i < t_used; i++) {	//O(n^2) but rare
+		for (unsigned int i = 0; i < t_used; i++) {	//O(n^2) but rare
 			ival = CO_GET_DEV(t_buffer[i].Key);
 			if (ival > min && ival < max) {
 				max = ival;
 				bi = i;
 			}
 		}
+		if (bi == -1) break;	// something is wrong
 		min = CO_GET_DEV(t_buffer[bi].Key);
 		max = 0xFFFFFFFF;
-		driver->Nvm->Write((used++)*size, &(t_buffer[bi]), size);
+		driver->Nvm->Write((used++)*size, (uint8_t*)&(t_buffer[bi]), size);
 	}
 	self->Used = used;
 #endif
@@ -144,8 +143,8 @@ void ODNvmToBuffer(CO_IF_DRV* driver, OD_DYN* self) {
 #else
 	const unsigned int size = sizeof(CO_OBJ);
 	CO_OBJ obj_buffer;
-	for (int i = 0; i < self->Used; i++) {
-		driver->Nvm->Read(i*size, &(obj_buffer), size);
+	for (unsigned int i = 0; i < self->Used; i++) {
+		driver->Nvm->Read(i*size, (uint8_t*)&obj_buffer, size);
 		t_buffer[t_used++] = obj_buffer;
 	}
 #endif
@@ -168,7 +167,7 @@ void ODInit (OD_DYN *self, CO_OBJ *root, uint32_t length)
     idx = 0;
     od  = root;
     while (idx < length) {
-        ObjCpy(self, &end);
+        ObjCpy(self->Root, &end);
         od++;
         idx++;
     }
@@ -182,14 +181,13 @@ void ODInit (OD_DYN *self, CO_OBJ *root, uint32_t length)
 void ODAddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA data, CO_IF_DRV* driver)
 {	//Copied wholesale from canopen-stack/example/dynamic-od/app/app_dict.c then modified
     CO_OBJ  temp;
-    CO_OBJ *od;
 
     if ((key == 0) ||
         (self->Used >= self->Length)) {
         return;
     }
 
-    od = self->Root;
+    //CO_OBJ *od = self->Root;
     ObjSet(&temp, key, type, data);
 
     ODEntryToBuffer(driver, self, &temp);
@@ -206,6 +204,7 @@ static void ODCreateSDOServer(OD_DYN *self, uint8_t srv, uint32_t request, uint3
     ODAddUpdate(self, CO_KEY(0x1200+srv, 2, CO_UNSIGNED32|CO_OBJ_DN_R_), 0, (CO_DATA)(response), driver);
 }
 
+/*
 static void ODCreateTPDOCom(OD_DYN *self, uint8_t num, uint32_t id, uint8_t type, uint16_t inhibit, uint16_t evtimer, CO_IF_DRV* driver)
 {
     ODAddUpdate(self, CO_KEY(0x1800+num, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(0x05), driver);
@@ -224,6 +223,7 @@ static void ODCreateTPDOMap(OD_DYN *self, uint8_t num, uint32_t *map, uint8_t le
         ODAddUpdate(self, CO_KEY(0x1A00+num, 1+n, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(map[n]), driver);
     }
 }
+*/
 
 //mandatory entries for CiA301 compliance
 #define ODLIST_SIZE 9
@@ -257,7 +257,7 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
     int odindex = 0;
     while (matches < ODLIST_SIZE && odindex < OD_SIZE) {
 	uint32_t buffer;
-	driver->Nvm->Read((odindex)*size, &buffer, size);
+	driver->Nvm->Read((odindex)*size, (uint8_t*)&buffer, size);
 	if (buffer == ODList[matches]) {	//if we found one of our entries, move onto the next
 		matches++;
 		odindex += 3;
@@ -282,10 +282,10 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
     ODAddUpdate(self, CO_KEY(0x1018, 3, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
     ODAddUpdate(self, CO_KEY(0x1018, 4, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
 
+    ODCreateSDOServer(self, 0, CO_COBID_SDO_REQUEST(), CO_COBID_SDO_RESPONSE(), driver);
+
     /*
     uint32_t map[3];
-
-    ODCreateSDOServer(self, 0, CO_COBID_SDO_REQUEST(), CO_COBID_SDO_RESPONSE(), driver);
 
     ODCreateTPDOCom(self, 0, CO_COBID_TPDO_DEFAULT(0), 254, 0, 0, driver);
 
@@ -306,10 +306,10 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 }
 // END OD SECTION
 
-extern struct CO_NODE_SPEC_T co_node_spec = {
-    0x33,	/* default Node-Id (currently arbitrary)*/
+struct CO_NODE_SPEC_T co_node_spec = {
+    0x11,	/* default Node-Id (currently arbitrary)*/
     APPCONF_CAN_BAUD_RATE,   			/* default Baudrate			*/
-    (uint8_t*)NVM_CHOS_ADDRESS,			/* pointer to object dictionary  	*/
+    (CO_OBJ*)NVM_CHOS_ADDRESS,			/* pointer to object dictionary  	*/
     APP_OBJ_N,        				/* object dictionary max length  	*/
     &AppEmcyTbl[0],				/* EMCY code & register bit table	*/
     &AppTmrMem[0],				/* pointer to timer memory blocks	*/
@@ -323,8 +323,10 @@ extern struct CO_NODE_SPEC_T co_node_spec = {
 virtual_timer_t co_vt;
 void co_vt_update(void *p) {
 	//TODO: add a way to shut it down
+	(void)p;
 	COTmrProcess(&(co_node.Tmr));
 	COTmrService(&(co_node.Tmr));
+	chVTSetI(&co_vt, MS2ST(1), co_vt_update, NULL);
 }
 
 void	canopen_driver_init() {
@@ -337,7 +339,7 @@ void	canopen_driver_init() {
 	FLASH_Lock();
 #endif
 	/* Clear all entries in object dictionary */
-	ODInit(&AppOD, (uint8_t*)NVM_CHOS_ADDRESS, APP_OBJ_N);
+	ODInit(&AppOD, (CO_OBJ*)NVM_CHOS_ADDRESS, APP_OBJ_N);
 	
 	/* Setup the object dictionary during runtime */
 	ODCreateDict(&AppOD, &AppDriver);

@@ -144,6 +144,8 @@ void comm_can_init(void) {
 	}
 
 #if CAN_ENABLE
+#ifdef USE_CANOPEN
+	canopen_driver_init();
 	memset(&m_rx_state, 0, sizeof(m_rx_state));
 
 	chMtxObjectInit(&can_mtx);
@@ -182,8 +184,6 @@ void comm_can_init(void) {
 	canStart(&HW_CAN_DEV, &cancfg);
 #endif
 
-#ifdef USE_CANOPEN
-	canopen_driver_init();
 #else
 	canard_driver_init();
 #endif
