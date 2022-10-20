@@ -20,7 +20,7 @@
 #define DUNE_NODE	0
 #define MULTITHRUSTER	1
 
-#define DUNE_OD		DUNE_NODE
+#define DUNE_OD		MULTITHRUSTER
 
 #ifdef USE_CANOPEN
 
@@ -31,7 +31,6 @@
 // Some useful includes
 #include "co_core.h"
 #include "mc_interface.h"
-#include "mcpwm_foc.h"
 #include "utils_math.h"
 #include "encoder/encoder.h"
 #include "terminal.h"
@@ -48,61 +47,50 @@
 
 // User CANopen object type
 
-uint32_t ERPMSize (CO_OBJ *obj, CO_NODE *node, uint32_t width) {
+uint32_t RPMSize (CO_OBJ *obj, CO_NODE *node, uint32_t width) {
 	(void)obj; (void)node; (void)width;
 	return 4;
 }
-CO_ERR   ERPMInit (CO_OBJ *obj, CO_NODE *node) {
+CO_ERR   RPMInit (CO_OBJ *obj, CO_NODE *node) {
 	(void)node;
 	obj->Data = 0;
 	return CO_ERR_NONE;
 }
-CO_ERR   ERPMRead (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
+CO_ERR   RPMRead (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 	(void)node;
 	if (size < 4)
 		return CO_ERR_OBJ_SIZE;
 	*(float*)buffer = *(float*)(obj->Data);
 	return CO_ERR_NONE;
 }
-CO_ERR   ERPMWrite(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
+CO_ERR   RPMWrite(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 	(void)node;
 	if (size != 4)
 		return CO_ERR_OBJ_SIZE;
 	uint32_t o_data = 0;
-	/*
-	for (int i = 0; i < 4; i++)
-		o_data += ((uint8_t*)buffer)[3-i] << i*8;
-	*/
 	o_data = *(uint32_t*)buffer;
-//	mcpwm_foc_beep(*(float*)obj->Data, 1.0f, 0.5f);
-	mc_interface_set_pid_speed((int32_t)o_data);//motor->m_conf->foc_encoder_ratio);
+	mc_interface_set_pid_speed((int32_t)o_data);
 	if (o_data == 0)
 		mc_interface_set_current_rel(0.0);
 	timeout_reset();
 	*(uint32_t*)obj->Data = o_data;
 	return CO_ERR_NONE;
 }
-CO_ERR   ERPMReset(CO_OBJ *obj, CO_NODE *node, uint32_t para) {
-	(void)node;
-	*(float*)obj->Data = (float)para;
-	return CO_ERR_NONE;
-}
 
-CO_OBJ_TYPE COTERPM = {
-	ERPMSize,
+CO_OBJ_TYPE COTRPM = {
+	RPMSize,
 	0,
-	ERPMRead,
-	ERPMWrite/*,
-	ERPMReset*/
+	RPMRead,
+	RPMWrite
 };
 
-float ERPMFreq = 0;
-int32_t ERPMMeasurement = 0;
+float RPMFreq = 0;
+int32_t RPMMeasurement = 0;
 int8_t FetTempMeasurement = 0;
 float MotorTempMeasurement = 0;
 int16_t InputCurrentMeasurement = 0;
 
-#define CO_TERPM ((CO_OBJ_TYPE*)&COTERPM)
+#define CO_TRPM ((CO_OBJ_TYPE*)&COTRPM)
 
 // Threads
 static THD_FUNCTION(cot_thread, arg);
@@ -115,11 +103,11 @@ static void terminal_test(int argc, const char **argv);
 // Private variables
 static volatile bool stop_now = true; static volatile bool is_running = false;
 
-void ERPM_TPdo_Callback(void* arg) {
+void RPM_TPdo_Callback(void* arg) {
 #if DUNE_OD == DUNE_NODE
 	(void)arg;
-	ERPMMeasurement = mcpwm_foc_get_rpm();//mc_interface_get_rpm();
-	ERPMMeasurement = (ERPMMeasurement&0x000000FF<<24) | (ERPMMeasurement&0x0000FF00<<8) | (ERPMMeasurement&0x00FF0000>>8) | (ERPMMeasurement&0xFF000000>>24);
+	RPMMeasurement = mc_interface_get_rpm();
+	RPMMeasurement = (RPMMeasurement&0x000000FF<<24) | (RPMMeasurement&0x0000FF00<<8) | (RPMMeasurement&0x00FF0000>>8) | (RPMMeasurement&0xFF000000>>24);
 	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 0);
 
 	FetTempMeasurement = mc_interface_temp_fet_filtered();
@@ -130,8 +118,8 @@ void ERPM_TPdo_Callback(void* arg) {
 	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 2);
 #elif DUNE_OD == MULTITHRUSTER
 	(void)arg;
-	ERPMMeasurement = mcpwm_foc_get_rpm();//mc_interface_get_rpm();
-	ERPMMeasurement = (ERPMMeasurement&0x000000FF<<24) | (ERPMMeasurement&0x0000FF00<<8) | (ERPMMeasurement&0x00FF0000>>8) | (ERPMMeasurement&0xFF000000>>24);
+	RPMMeasurement = mc_interface_get_rpm();
+	RPMMeasurement = (RPMMeasurement&0x000000FF<<24) | (RPMMeasurement&0x0000FF00<<8) | (RPMMeasurement&0x00FF0000>>8) | (RPMMeasurement&0xFF000000>>24);
 	InputCurrentMeasurement = (int16_t)(mc_interface_get_tot_current_in_filtered() * 1e1);
 	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 0);
 #endif
@@ -145,7 +133,7 @@ void app_canopen_test_start(void) {
 	// TPDO
 	
 #if DUNE_OD == DUNE_NODE
-	// TPDO #1: 2 bytes unsigned int status word (unknown), r bytes signed int (E?)RPM (, 3 bytes unsigned ints various status things)
+	// TPDO #1: 2 bytes unsigned int status word (unknown), r bytes signed int RPM (, 3 bytes unsigned ints various status things)
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x05), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000180 | CO_TPDO_COBID_REMOTE), co_node_spec.Drv);	//see evobldc EDS
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
@@ -156,7 +144,7 @@ void app_canopen_test_start(void) {
 	ODAddUpdate(&AppOD, CO_KEY(0x3116, 0, CO_UNSIGNED8	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAA), co_node_spec.Drv);	//status word
 	ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAAAA), co_node_spec.Drv);	//status word
 	
-	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&ERPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
+	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&RPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
 
 	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(2), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6044, 0, 32), co_node_spec.Drv);
@@ -214,7 +202,7 @@ void app_canopen_test_start(void) {
 
 	ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0xAAAA), co_node_spec.Drv);	//status word
 	
-	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&ERPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
+	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&RPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
 	ODAddUpdate(&AppOD, CO_KEY(0x6078, 0, CO_UNSIGNED16	| CO_OBJ____RW), 0, (CO_DATA)(&InputCurrentMeasurement), co_node_spec.Drv);	// Input current
 
 	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(3), co_node_spec.Drv);
@@ -223,13 +211,13 @@ void app_canopen_test_start(void) {
 	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 3, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6044, 0, 32), co_node_spec.Drv);
 
 #endif
-	// RPDO
+	// RPDO #1: 4 bytes int set RPM
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000200), co_node_spec.Drv);	//see evobldc EDS
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
 
 	ODAddUpdate(&AppOD, CO_KEY(0x6042, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
-	ODAddUpdate(&AppOD, CO_KEY(0x6042, 1, CO_UNSIGNED32	| CO_OBJ____RW), CO_TERPM, (CO_DATA)(&ERPMFreq), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x6042, 1, CO_UNSIGNED32	| CO_OBJ____RW), CO_TRPM, (CO_DATA)(&RPMFreq), co_node_spec.Drv);
 
 	ODAddUpdate(&AppOD, CO_KEY(0x1600, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1600, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6042, 1, 32), co_node_spec.Drv);
@@ -257,7 +245,7 @@ void app_canopen_test_start(void) {
 	COTmrCreate(	&(co_node.Tmr),
 			100,
 			100,
-			ERPM_TPdo_Callback,
+			RPM_TPdo_Callback,
 			0);
 }
 
@@ -285,25 +273,6 @@ static THD_FUNCTION(cot_thread, arg) {
 
 	is_running = true;
 
-	//mcpwm_foc_beep(880.0f, 1.0f, 0.1f);
-
-	//mcpwm_foc_beep(220, 100, 0.5);
-	// Example of using the experiment plot
-//	chThdSleepMilliseconds(8000);
-//	commands_init_plot("Sample", "Voltage");
-//	commands_plot_add_graph("Temp Fet");
-//	commands_plot_add_graph("Input Voltage");
-//	float samp = 0.0;
-//
-//	for(;;) {
-//		commands_plot_set_graph(0);
-//		commands_send_plot_points(samp, mc_interface_temp_fet_filtered());
-//		commands_plot_set_graph(1);
-//		commands_send_plot_points(samp, GET_INPUT_VOLTAGE());
-//		samp++;
-//		chThdSleepMilliseconds(10);
-//	}
-
 	for(;;) {
 		// Check if it is time to stop.
 		if (stop_now) {
@@ -312,7 +281,6 @@ static THD_FUNCTION(cot_thread, arg) {
 		}
 
 		// Run your logic here. A lot of functionality is available in mc_interface.h.
-		
 		chThdSleepMilliseconds(100);
 	}
 }
