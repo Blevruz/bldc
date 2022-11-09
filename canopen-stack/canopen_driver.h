@@ -6,7 +6,7 @@
 #include "co_can_chos.h"
 #include "co_nvm_chos.h"
 #include "co_timer_swcycle.h"
-extern struct CO_NODE_SPEC_T co_node_spec;
+extern CO_NODE_SPEC co_node_spec;
 extern CO_NODE co_node;
 typedef struct {
   CO_OBJ    *Root;
@@ -14,6 +14,7 @@ typedef struct {
   uint32_t   Used;
 } OD_DYN;
 extern OD_DYN AppOD;
+
 
 void	canopen_driver_init(void);
 

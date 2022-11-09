@@ -29,7 +29,7 @@
 ******************************************************************************/
 
 //TODO: find proper size for Object dictionary (assuming 128KB)
-#define NVM_CHOS_SIZE 256
+#define NVM_CHOS_SIZE 1024
 
 /******************************************************************************
 * PRIVATE FUNCTIONS

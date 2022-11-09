@@ -91,9 +91,24 @@ static int16_t ObjCmp(CO_OBJ *a, CO_OBJ *b)
 CO_OBJ  t_buffer[TEMP_BUFFER_SIZE];
 uint32_t	t_used = 0;
 
+/**
+ * @brief Writes pointed object to either dictionary or buffer depending on OD staticity.
+ *
+ * @param driver
+ * pointer to CANopen driver
+ *
+ * @param self
+ * pointer to CANopen object dictionary
+ *
+ * @param to_write
+ * pointer to the CANopen object to write in the buffer
+ *
+ * @return 1 if static, 2 if dynamic, -1 if failure
+ */
 int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write) {
 #if OD == STATIC
-	driver->Nvm->Write((self->Used++)*sizeof(CO_OBJ), to_write, sizeof(CO_OBJ));
+	if (driver->Nvm->Write((self->Used++)*sizeof(CO_OBJ), to_write, sizeof(CO_OBJ)) != FLASH_COMPLETE)
+		return -1;
 	return 1;
 #else
 	(void)driver;
@@ -101,14 +116,24 @@ int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write) {
 	if (t_used < TEMP_BUFFER_SIZE) {
 		t_buffer[t_used++] = *to_write;
 	}
-	return 1;
+	return 2;
 #endif
 }
 
+/**
+ * Writes the buffer's content to NVM if OD is dynamic (does nothing if static)
+ *
+ * @param driver
+ * pointer to CANopen driver
+ *
+ * @param self
+ * pointer to CANopen object dictionary
+ */
 void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self) {
 #if OD == STATIC
 	return;
-#else
+#else	
+	//TODO: append instead of rewriting each time, only rewrite if full (no more 0xffff)
 	FLASH_Unlock();
 	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
 			FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
@@ -306,7 +331,7 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 }
 // END OD SECTION
 
-struct CO_NODE_SPEC_T co_node_spec = {
+CO_NODE_SPEC co_node_spec = {
     0x11,	/* default Node-Id (currently arbitrary)*/
     APPCONF_CAN_BAUD_RATE,   			/* default Baudrate			*/
     (CO_OBJ*)NVM_CHOS_ADDRESS,			/* pointer to object dictionary  	*/
@@ -330,6 +355,8 @@ void co_vt_update(void *p) {
 }
 
 void	canopen_driver_init() {
+	co_node_spec.NodeId = 0x11;//HW_DEFAULT_ID & 0x7FF;
+
 #if OD == STATIC
 	FLASH_Unlock();
 	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |

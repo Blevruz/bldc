@@ -19,8 +19,9 @@
 
 #define DUNE_NODE	0
 #define MULTITHRUSTER	1
+#define OTHER_DUNE_NODE	2
 
-#define DUNE_OD		MULTITHRUSTER
+#define DUNE_OD		OTHER_DUNE_NODE
 
 #ifdef USE_CANOPEN
 
@@ -44,53 +45,97 @@
 #include <string.h>
 #include <stdio.h>
 
+/*
+ * 500KBaud, automatic wakeup, automatic recover
+ * from abort mode.
+ * See section 22.7.7 on the STM32 reference manual.
+ * (copy-pasted from comm/comm_can.c)
+ */
+static CANConfig cancfg = {
+		CAN_MCR_ABOM | CAN_MCR_AWUM | CAN_MCR_TXFP,
+		CAN_BTR_SJW(3) | CAN_BTR_TS2(2) |
+		CAN_BTR_TS1(9) | CAN_BTR_BRP(5)
+};
+
+static void app_cot_stop_can(void) {
+#ifdef HW_CAN2_DEV
+	canStop(&CAND1);
+	canStop(&CAND2);
+#else
+	canStop(&HW_CAN_DEV);
+#endif
+}
+
+static void app_cot_start_can(void) {
+#ifdef HW_CAN2_DEV
+	canStart(&CAND1, &cancfg);
+	canStart(&CAND2, &cancfg);
+#else
+	canStart(&HW_CAN_DEV, &cancfg);
+#endif
+}
 
 // User CANopen object type
 
-uint32_t RPMSize (CO_OBJ *obj, CO_NODE *node, uint32_t width) {
+static float mc_enc_ratio = 0;
+
+uint32_t ERPMSize (CO_OBJ *obj, CO_NODE *node, uint32_t width) {
 	(void)obj; (void)node; (void)width;
 	return 4;
 }
-CO_ERR   RPMInit (CO_OBJ *obj, CO_NODE *node) {
+CO_ERR   ERPMInit (CO_OBJ *obj, CO_NODE *node) {
 	(void)node;
 	obj->Data = 0;
 	return CO_ERR_NONE;
 }
-CO_ERR   RPMRead (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
+CO_ERR   ERPMRead (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 	(void)node;
 	if (size < 4)
 		return CO_ERR_OBJ_SIZE;
 	*(float*)buffer = *(float*)(obj->Data);
 	return CO_ERR_NONE;
 }
-CO_ERR   RPMWrite(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
+CO_ERR   ERPMWrite(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 	(void)node;
 	if (size != 4)
 		return CO_ERR_OBJ_SIZE;
 	uint32_t o_data = 0;
-	o_data = *(uint32_t*)buffer;
+	o_data = *(uint32_t*)buffer * mc_enc_ratio;
 	mc_interface_set_pid_speed((int32_t)o_data);
+/*
 	if (o_data == 0)
 		mc_interface_set_current_rel(0.0);
+*/
 	timeout_reset();
 	*(uint32_t*)obj->Data = o_data;
 	return CO_ERR_NONE;
 }
 
-CO_OBJ_TYPE COTRPM = {
-	RPMSize,
+CO_OBJ_TYPE COTERPM = {
+	ERPMSize,
 	0,
-	RPMRead,
-	RPMWrite
+	ERPMRead,
+	ERPMWrite
 };
 
-float RPMFreq = 0;
-int32_t RPMMeasurement = 0;
+float ERPMFreq = 0;
+#if DUNE_OD == DUNE_NODE
+int32_t ERPMMeasurement = 0;
 int8_t FetTempMeasurement = 0;
 float MotorTempMeasurement = 0;
 int16_t InputCurrentMeasurement = 0;
+#elif DUNE_OD == MULTITHRUSTER
+int16_t InputCurrentMeasurement = 0;
+int32_t ERPMMeasurement = 0;
+#elif DUNE_OD == OTHER_DUNE_NODE
+int16_t ERPMMeasurement = 0;
+int8_t FetTempMeasurement = 0;
+float MotorTempMeasurement = 0;
+uint32_t VdcBus_kV = 0;
+uint32_t InputCurrentMeasurement = 0;
+#endif
 
-#define CO_TRPM ((CO_OBJ_TYPE*)&COTRPM)
+#define CO_TERPM ((CO_OBJ_TYPE*)&COTERPM)
 
 // Threads
 static THD_FUNCTION(cot_thread, arg);
@@ -99,15 +144,17 @@ static THD_WORKING_AREA(cot_thread_wa, 1024);
 // Private functions
 static void pwm_callback(void);
 static void terminal_test(int argc, const char **argv);
+static void terminal_set_node_id(int argc, const char **argv);
+static void terminal_update_od(int argc, const char **argv);
 
 // Private variables
 static volatile bool stop_now = true; static volatile bool is_running = false;
 
-void RPM_TPdo_Callback(void* arg) {
-#if DUNE_OD == DUNE_NODE
+void ERPM_TPdo_Callback(void* arg) {
 	(void)arg;
-	RPMMeasurement = mc_interface_get_rpm();
-	RPMMeasurement = (RPMMeasurement&0x000000FF<<24) | (RPMMeasurement&0x0000FF00<<8) | (RPMMeasurement&0x00FF0000>>8) | (RPMMeasurement&0xFF000000>>24);
+#if DUNE_OD == DUNE_NODE
+	ERPMMeasurement = mc_interface_get_rpm() / mc_enc_ratio;
+	ERPMMeasurement = (ERPMMeasurement&0x000000FF<<24) | (ERPMMeasurement&0x0000FF00<<8) | (ERPMMeasurement&0x00FF0000>>8) | (ERPMMeasurement&0xFF000000>>24);
 	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 0);
 
 	FetTempMeasurement = mc_interface_temp_fet_filtered();
@@ -116,13 +163,39 @@ void RPM_TPdo_Callback(void* arg) {
 
 	InputCurrentMeasurement = (int16_t)(mc_interface_get_tot_current_in_filtered() * 1e1);
 	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 2);
+
+#elif DUNE_OD == OTHER_DUNE_NODE
+	ERPMMeasurement = mc_interface_get_rpm() / mc_enc_ratio;
+	ERPMMeasurement = (ERPMMeasurement&0x00FF<<8) | (ERPMMeasurement&0xFF00>>8);
+	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 0);
+
+	FetTempMeasurement = mc_interface_temp_fet_filtered();
+	MotorTempMeasurement = mc_interface_temp_motor_filtered();
+	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 1);
+
+	VdcBus_kV = mc_interface_get_input_voltage_filtered();
+	InputCurrentMeasurement = (uint32_t)(mc_interface_get_tot_current_in_filtered() * 1e2);
+	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 2);
+
 #elif DUNE_OD == MULTITHRUSTER
-	(void)arg;
-	RPMMeasurement = mc_interface_get_rpm();
-	RPMMeasurement = (RPMMeasurement&0x000000FF<<24) | (RPMMeasurement&0x0000FF00<<8) | (RPMMeasurement&0x00FF0000>>8) | (RPMMeasurement&0xFF000000>>24);
+	ERPMMeasurement = mc_interface_get_rpm();
+	ERPMMeasurement = (ERPMMeasurement&0x000000FF<<24) | (ERPMMeasurement&0x0000FF00<<8) | (ERPMMeasurement&0x00FF0000>>8) | (ERPMMeasurement&0xFF000000>>24);
 	InputCurrentMeasurement = (int16_t)(mc_interface_get_tot_current_in_filtered() * 1e1);
 	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 0);
 #endif
+}
+
+void update_od() {
+
+	ODNvmToBuffer(co_node_spec.Drv, &AppOD);
+	
+	app_cot_stop_can();	// stopping can to avoid issues caused by writing to nvm
+	ODBufferToNvm(co_node_spec.Drv, &AppOD);
+	app_cot_start_can();	// starting it back up
+	ODClearBuffer();
+
+	CORPdoInit(co_node.RPdo, &co_node);
+	COTPdoInit(co_node.TPdo, &co_node);
 }
 
 // Called when the canopen_test application is started. Start our
@@ -130,10 +203,14 @@ void RPM_TPdo_Callback(void* arg) {
 void app_canopen_test_start(void) {
 	mc_interface_set_pwm_callback(pwm_callback);
 
+	mc_configuration mc_config;
+	conf_general_read_mc_configuration(&mc_config, false);
+	mc_enc_ratio = mc_config.foc_encoder_ratio;
+
 	// TPDO
 	
 #if DUNE_OD == DUNE_NODE
-	// TPDO #1: 2 bytes unsigned int status word (unknown), r bytes signed int RPM (, 3 bytes unsigned ints various status things)
+	// TPDO #1: 2 bytes unsigned int status word (unknown), r bytes signed int ERPM (, 3 bytes unsigned ints various status things)
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x05), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000180 | CO_TPDO_COBID_REMOTE), co_node_spec.Drv);	//see evobldc EDS
 	ODAddUpdate(&AppOD, CO_KEY(0x1800, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
@@ -144,7 +221,7 @@ void app_canopen_test_start(void) {
 	ODAddUpdate(&AppOD, CO_KEY(0x3116, 0, CO_UNSIGNED8	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAA), co_node_spec.Drv);	//status word
 	ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAAAA), co_node_spec.Drv);	//status word
 	
-	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&RPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
+	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&ERPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
 
 	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(2), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6044, 0, 32), co_node_spec.Drv);
@@ -202,7 +279,7 @@ void app_canopen_test_start(void) {
 
 	ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0xAAAA), co_node_spec.Drv);	//status word
 	
-	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&RPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
+	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&ERPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
 	ODAddUpdate(&AppOD, CO_KEY(0x6078, 0, CO_UNSIGNED16	| CO_OBJ____RW), 0, (CO_DATA)(&InputCurrentMeasurement), co_node_spec.Drv);	// Input current
 
 	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(3), co_node_spec.Drv);
@@ -210,18 +287,72 @@ void app_canopen_test_start(void) {
 	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6078, 0, 16), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 3, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6044, 0, 32), co_node_spec.Drv);
 
+#elif DUNE_OD == OTHER_DUNE_NODE
+	// TPDO #1: 2 bytes unsigned int status word (unknown), 2 bytes signed int ERPM, 3 bytes status words
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x05), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000180 | CO_TPDO_COBID_REMOTE), co_node_spec.Drv);	//see evobldc EDS
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 3, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+				//subindex 4 reserved
+	ODAddUpdate(&AppOD, CO_KEY(0x1800, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+
+	ODAddUpdate(&AppOD, CO_KEY(0x3116, 0, CO_UNSIGNED8	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAA), co_node_spec.Drv);		//status word
+	ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0xAAAA), co_node_spec.Drv);	//status word
+	
+	ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED16	| CO_OBJ____RW), 0, (CO_DATA)(&ERPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
+
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(4), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 1, CO_UNSIGNED32	| CO_OBJ_D__R_), 0, CO_LINK(0x6041, 0, 16), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6044, 0, 16), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 3, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6041, 0, 16), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A00, 4, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x3116, 0, 8), co_node_spec.Drv);
+
+	// TPDO #2: 1 byte unsigned int humidity, 1 byte signed int fet temperature, 4 bytes float motor temp
+	ODAddUpdate(&AppOD, CO_KEY(0x1801, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x05), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1801, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000380 | CO_TPDO_COBID_REMOTE), co_node_spec.Drv);	//see evobldc EDS
+	ODAddUpdate(&AppOD, CO_KEY(0x1801, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1801, 3, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+				//subindex 4 reserved
+	ODAddUpdate(&AppOD, CO_KEY(0x1801, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+
+	ODAddUpdate(&AppOD, CO_KEY(0x3102, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x03), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x3102, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, (CO_DATA)(0), co_node_spec.Drv);	//Pressure (dummy)
+	ODAddUpdate(&AppOD, CO_KEY(0x3102, 2, CO_UNSIGNED8	| CO_OBJ____RW), 0, (CO_DATA)(&FetTempMeasurement), co_node_spec.Drv);	//Temperature mosfet, TODO: replace with at type that handles the temp measurement on read
+	ODAddUpdate(&AppOD, CO_KEY(0x3102, 3, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&MotorTempMeasurement), co_node_spec.Drv);//Temperature motor, TODO: replace with at type that handles the temp measurement on read
+
+	ODAddUpdate(&AppOD, CO_KEY(0x1A01, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(3), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A01, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x3116, 0, 8), co_node_spec.Drv);	// Humidity (dummy)
+	ODAddUpdate(&AppOD, CO_KEY(0x1A01, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x3102, 2, 8), co_node_spec.Drv);	// Fet temperature
+	ODAddUpdate(&AppOD, CO_KEY(0x1A01, 3, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x3102, 3, 32), co_node_spec.Drv);	// Motor Temperature
+
+	// TPDO #3: 4 bytes unsigned int motor voltage, 4 bytes unsigned int input current
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x05), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x000001C0 | CO_TPDO_COBID_REMOTE), co_node_spec.Drv);	//see evobldc EDS
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 3, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+				//subindex 4 reserved
+	ODAddUpdate(&AppOD, CO_KEY(0x1802, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
+	
+	ODAddUpdate(&AppOD, CO_KEY(0x6078, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&InputCurrentMeasurement), co_node_spec.Drv);	// Input current
+	ODAddUpdate(&AppOD, CO_KEY(0x6079, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&VdcBus_kV), co_node_spec.Drv);	// Motor Voltage
+
+	ODAddUpdate(&AppOD, CO_KEY(0x1A02, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(2), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x1A02, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6079, 0, 32), co_node_spec.Drv);	// Input Current
+	ODAddUpdate(&AppOD, CO_KEY(0x1A02, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6078, 0, 32), co_node_spec.Drv);	// Motor Voltage
 #endif
-	// RPDO #1: 4 bytes int set RPM
+
+	// RPDO #1: 4 bytes int set ERPM
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000200), co_node_spec.Drv);	//see evobldc EDS
 	ODAddUpdate(&AppOD, CO_KEY(0x1400, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
 
 	ODAddUpdate(&AppOD, CO_KEY(0x6042, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
-	ODAddUpdate(&AppOD, CO_KEY(0x6042, 1, CO_UNSIGNED32	| CO_OBJ____RW), CO_TRPM, (CO_DATA)(&RPMFreq), co_node_spec.Drv);
+	ODAddUpdate(&AppOD, CO_KEY(0x6042, 1, CO_UNSIGNED32	| CO_OBJ____RW), CO_TERPM, (CO_DATA)(&ERPMFreq), co_node_spec.Drv);
 
 	ODAddUpdate(&AppOD, CO_KEY(0x1600, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
 	ODAddUpdate(&AppOD, CO_KEY(0x1600, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6042, 1, 32), co_node_spec.Drv);
 	
+	/*
 	ODNvmToBuffer(co_node_spec.Drv, &AppOD);
 
 	ODBufferToNvm(co_node_spec.Drv, &AppOD);
@@ -230,6 +361,9 @@ void app_canopen_test_start(void) {
 
 	CORPdoInit(co_node.RPdo, &co_node);
 	COTPdoInit(co_node.TPdo, &co_node);
+	*/
+	
+	update_od();
 
 	stop_now = false;
 	chThdCreateStatic(cot_thread_wa, sizeof(cot_thread_wa),
@@ -242,10 +376,22 @@ void app_canopen_test_start(void) {
 			"[d]",
 			terminal_test);
 
+	terminal_register_command_callback(
+			"set_node_id",
+			"Set the device's CANopen Node ID",
+			"[d]",
+			terminal_set_node_id);
+
+	terminal_register_command_callback(
+			"update_od",
+			"Reloads the device's CANopen object dictionary",
+			"",
+			terminal_update_od);
+
 	COTmrCreate(	&(co_node.Tmr),
 			100,
 			100,
-			RPM_TPdo_Callback,
+			ERPM_TPdo_Callback,
 			0);
 }
 
@@ -262,8 +408,8 @@ void app_canopen_test_stop(void) {
 }
 
 void app_canopen_test_configure(app_configuration *conf) {	//TODO
-	(void)conf;
-	app_set_configuration(conf);
+	//(void)conf;
+	co_node_spec.NodeId = conf->controller_id;
 }
 
 static THD_FUNCTION(cot_thread, arg) {
@@ -304,4 +450,28 @@ static void terminal_test(int argc, const char **argv) {
 		commands_printf("This command requires one argument.\n");
 	}
 }
+
+// Callback function to change the NodeID (NOTE: Doesn't update object dictionary!)
+static void terminal_set_node_id(int argc, const char **argv) {
+	if (argc == 2) {
+		int d = -1;
+		sscanf(argv[1], "%d", &d);
+
+		co_node.NodeId = d;
+
+		commands_printf("Node ID set to %d", d);
+	} else {
+		commands_printf("Usage: %s [integer]\n", argv[0]);
+	}
+}
+
+// Callback function to update the object dictionary
+static void terminal_update_od(int argc, const char **argv) {
+	commands_printf("Starting OD rewrite, may take some time... ");
+
+	update_od();
+
+	commands_printf("OD rewrite done!\n");
+}
+
 #endif //USE_CANOPEN
