@@ -118,7 +118,7 @@ void	ODEraseNvm() {
 	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
 			FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
 	
-	//if (get_canopen_ready()) {
+	if (get_canopen_ready()) {
 
 		if (nrf_driver_ext_nrf_running()) {
 			nrf_driver_pause(6000);
@@ -127,13 +127,15 @@ void	ODEraseNvm() {
 		mc_interface_ignore_input_both(5000);
 		mc_interface_release_motor_override_both();
 	
+		/*	FOR SOME REASON doesn't work?
 		if (!mc_interface_wait_for_motor_release_both(3.0)) {
 			return; 
 		}
+		*/
 	
 		utils_sys_lock_cnt();
 		timeout_configure_IWDT_slowest();
-	//}
+	}
 
 	uint16_t res = FLASH_EraseSector(8 << 3, (uint8_t)((PWR->CSR & PWR_CSR_PVDO) ? VoltageRange_2 : VoltageRange_3));
 			//Note the `8 << 3`; this function doesnt bitshift the sector number
