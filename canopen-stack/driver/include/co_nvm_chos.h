@@ -32,8 +32,13 @@ extern "C" {
 ******************************************************************************/
 
 #define NVM_CHOS_ADDRESS	0x08080000
+//TODO: find proper size for Object dictionary (assuming 128KB)
+//		current (16/11/2022) size of the OD: ~60 3-word entries
+//		-> 60*3*4 = 720 bytes per OD
+#define NVM_CHOS_SIZE		4096	//1024
 
 //extern uint8_t* od_nvm_mem;
+extern uint32_t ChOSNvmDriver_offset;
 extern const CO_IF_NVM_DRV ChOSNvmDriver;
 
 #ifdef __cplusplus               /* for compatibility with C++ environments  */

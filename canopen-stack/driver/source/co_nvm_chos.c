@@ -28,9 +28,6 @@
 * PRIVATE DEFINES
 ******************************************************************************/
 
-//TODO: find proper size for Object dictionary (assuming 128KB)
-#define NVM_CHOS_SIZE 1024
-
 /******************************************************************************
 * PRIVATE FUNCTIONS
 ******************************************************************************/
@@ -45,6 +42,8 @@ static uint32_t DrvNvmWrite (uint32_t start, uint8_t *buffer, uint32_t size);
 ******************************************************************************/
 
 //uint8_t* __attribute__((__section__(".co_od"))) od_nvm_mem;
+
+uint32_t ChOSNvmDriver_offset = 0;
 
 const CO_IF_NVM_DRV ChOSNvmDriver = {
     DrvNvmInit,
@@ -69,7 +68,7 @@ static uint32_t DrvNvmRead(uint32_t start, uint8_t *buffer, uint32_t size)
     idx = 0;
     pos = start;
     while ((pos < NVM_CHOS_SIZE) && (idx < size)) {
-        buffer[idx] = *(uint8_t*)(NVM_CHOS_ADDRESS + pos);//od_nvm_mem[pos];
+        buffer[idx] = *(uint8_t*)(NVM_CHOS_ADDRESS + ChOSNvmDriver_offset + pos);//od_nvm_mem[pos];
         idx++;
         pos++;
     }
@@ -94,7 +93,7 @@ static uint32_t DrvNvmWrite(uint32_t base, uint8_t *data, uint32_t len)
 	timeout_configure_IWDT_slowest();
 
 	for (uint32_t i = 0;i < len;i++) {
-		uint16_t res = FLASH_ProgramByte(base + i + NVM_CHOS_ADDRESS, data[i]);
+		uint16_t res = FLASH_ProgramByte(ChOSNvmDriver_offset + base + i + NVM_CHOS_ADDRESS, data[i]);
 		if (res != FLASH_COMPLETE) {
 			FLASH_Lock();
 			timeout_configure_IWDT();

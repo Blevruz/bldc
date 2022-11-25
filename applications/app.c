@@ -141,7 +141,7 @@ void app_set_configuration(app_configuration *conf) {
 
 #ifdef USE_CANOPEN
 	case APP_CANOPEN_TEST:
-		app_canopen_test_start();	//MOVED TO comm/comm_can.c FOR TESTING 
+		app_canopen_test_start();	
 		break;
 #endif
 
@@ -153,6 +153,9 @@ void app_set_configuration(app_configuration *conf) {
 		break;
 
 	default:
+#ifdef USE_CANOPEN	// XXX Used for debug since default VESC tool doesnt have a canopen option
+		app_canopen_test_start();
+#endif
 		break;
 	}
 

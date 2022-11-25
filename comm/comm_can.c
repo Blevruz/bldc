@@ -32,11 +32,11 @@
 #include "crc.h"
 #include "packet.h"
 #include "hw.h"
-#ifdef	USE_CANOPEN
+//#ifdef	USE_CANOPEN
 #include "canopen_driver.h"
-#else
+//#else
 #include "canard_driver.h"
-#endif	//USE_CANOPEN
+//#endif	//USE_CANOPEN
 #include "encoder/encoder.h"
 #include "utils_sys.h"
 #include "mempools.h"
@@ -144,10 +144,11 @@ void comm_can_init(void) {
 	}
 
 #if CAN_ENABLE
+	/*
 #ifdef USE_CANOPEN
-	canopen_driver_init();
-
+	canopen_driver_init();	//moved to applications/app_canopen_test.c
 #endif
+	*/
 	memset(&m_rx_state, 0, sizeof(m_rx_state));
 
 	chMtxObjectInit(&can_mtx);
@@ -186,18 +187,18 @@ void comm_can_init(void) {
 	canStart(&HW_CAN_DEV, &cancfg);
 #endif
 
-#ifndef USE_CANOPEN
+//#ifndef USE_CANOPEN
 	canard_driver_init();
-#endif
+//#endif
 
 	chThdCreateStatic(cancom_read_thread_wa, sizeof(cancom_read_thread_wa), NORMALPRIO + 1,
 			cancom_read_thread, NULL);
-#ifndef	USE_CANOPEN
+//#ifndef	USE_CANOPEN
 	chThdCreateStatic(cancom_status_thread_wa, sizeof(cancom_status_thread_wa), NORMALPRIO,
 			cancom_status_thread, NULL);
 	chThdCreateStatic(cancom_status_thread_2_wa, sizeof(cancom_status_thread_2_wa), NORMALPRIO,
 			cancom_status_thread_2, NULL);
-#endif
+//#endif
 	chThdCreateStatic(cancom_process_thread_wa, sizeof(cancom_process_thread_wa), NORMALPRIO,
 			cancom_process_thread, NULL);
 #ifdef HW_HAS_DUAL_MOTORS
@@ -1244,9 +1245,12 @@ static THD_FUNCTION(cancom_read_thread, arg) {
 			continue;
 		}
 
-#ifdef USE_CANOPEN
-		CONodeProcess(&co_node);
-#else
+//#ifdef USE_CANOPEN
+		if (get_canopen_ready()) {
+			CONodeProcess(&co_node);
+			continue;
+		}
+//#else
 		msg_t result = canReceive(&HW_CAN_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 
 		while (result == MSG_OK) {
@@ -1278,7 +1282,7 @@ static THD_FUNCTION(cancom_read_thread, arg) {
 			result = canReceive(&HW_CAN2_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 		}
 #endif
-#endif	//USE_CANOPEN
+//#endif	//USE_CANOPEN
 	}
 
 	chEvtUnregister(&HW_CAN_DEV.rxfull_event, &el);

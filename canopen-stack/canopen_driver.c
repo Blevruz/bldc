@@ -4,6 +4,9 @@
 #define DYNAMIC 1
 #define OD 	DYNAMIC
 
+#define OD_SIZE 256	//TODO: replace with better value
+#define OD_END_DW	0xCAFECAFE	//double word that marks the end of the dictionary
+
 CO_NODE co_node;
 struct CO_IF_DRV_T AppDriver = {
     &ChOSCanDriver,
@@ -48,6 +51,17 @@ OD_DYN AppOD = {
 	0
 };
 
+static uint8_t set_od_root (CO_OBJ* new_root) {	//function to synchronise the co_node_spec and AppOD root values
+	// root can only be within designated NVM sector (by default sector 8)
+	if ((uint32_t)new_root < NVM_CHOS_ADDRESS || (uint32_t)new_root - NVM_CHOS_ADDRESS >= NVM_CHOS_SIZE)
+		return -1;
+	ChOSNvmDriver_offset = (uint32_t)new_root - NVM_CHOS_ADDRESS;
+	AppOD.Root = new_root;
+	co_node_spec.Dict = new_root;
+	co_node.Dict.Root = new_root;	//TODO: check which ones can safely be removed (redundancy)
+	return 1;
+}
+
 static void ObjSet(CO_OBJ *obj, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA data)
 {
   obj->Key  = key;
@@ -87,9 +101,19 @@ static int16_t ObjCmp(CO_OBJ *a, CO_OBJ *b)
 }
 */
 
-#define TEMP_BUFFER_SIZE 256
+#define TEMP_BUFFER_SIZE 512
 CO_OBJ  t_buffer[TEMP_BUFFER_SIZE];
 uint32_t	t_used = 0;
+
+void	ODEraseNvm() {
+		FLASH_Unlock();
+		FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
+				FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
+		FLASH_EraseSector(8 << 3, (uint8_t)((PWR->CSR & PWR_CSR_PVDO) ? VoltageRange_2 : VoltageRange_3));
+			//Note the `8 << 3`; this function doesnt bitshift the sector number
+		FLASH_Lock();
+}
+
 
 /**
  * @brief Writes pointed object to either dictionary or buffer depending on OD staticity.
@@ -103,7 +127,7 @@ uint32_t	t_used = 0;
  * @param to_write
  * pointer to the CANopen object to write in the buffer
  *
- * @return 1 if static, 2 if dynamic, -1 if failure
+ * @return 1 if static, 2 if dynamic addition, 3 if dynamic replacement, -1 if failure
  */
 int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write) {
 #if OD == STATIC
@@ -113,10 +137,17 @@ int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write) {
 #else
 	(void)driver;
 	(void)self;
+	for (volatile int i = 0; i < t_used; i++) {	//volatile keyword to keep this loop in spite of optimisation
+		if ((t_buffer[i].Key & ~0xFF) == (to_write->Key & ~0xFF)) {	// If other object with same Index&Subindex:
+			t_buffer[i] = *to_write;			// Replace it with more recent obj
+			return 3;
+		}
+	}
 	if (t_used < TEMP_BUFFER_SIZE) {
 		t_buffer[t_used++] = *to_write;
+		return 2;
 	}
-	return 2;
+	return -1;	//error: no more room
 #endif
 }
 
@@ -133,15 +164,24 @@ void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self) {
 #if OD == STATIC
 	return;
 #else	
-	//TODO: append instead of rewriting each time, only rewrite if full (no more 0xffff)
-	FLASH_Unlock();
-	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
-			FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
-	FLASH_EraseSector(8 << 3, (uint8_t)((PWR->CSR & PWR_CSR_PVDO) ? VoltageRange_2 : VoltageRange_3));
-		//Note the `8 << 3`; this function doesnt bitshift the sector number
-	FLASH_Lock();
-	uint32_t used = 0;
+	// Can we append?
 	const unsigned int size = sizeof(CO_OBJ);
+	if (((uint32_t)self->Root - NVM_CHOS_ADDRESS) + self->Used*size + t_used*size < NVM_CHOS_SIZE &&
+			self->Used != 0) {
+		uint32_t end_dw = OD_END_DW;	// If so: change dictionary root
+		const unsigned int size = sizeof(uint32_t);
+
+		driver->Nvm->Write((self->Used)*3*size, (uint8_t*)&end_dw, size);
+		set_od_root((uint32_t)self->Root + (self->Used*3 + 1)*size);
+
+		self->Used = 0;
+	} else {
+		// If not: wipe and write
+		ODEraseNvm();
+		set_od_root(NVM_CHOS_ADDRESS);
+	}
+//	ChOSNvmDriver_offset = (uint32_t)self->Root - NVM_CHOS_ADDRESS;
+	uint32_t used = 0;
 	uint32_t max = 0xFFFFFFFF;
 	uint32_t min = 0;
 	uint32_t ival; int bi = -1;
@@ -168,9 +208,14 @@ void ODNvmToBuffer(CO_IF_DRV* driver, OD_DYN* self) {
 #else
 	const unsigned int size = sizeof(CO_OBJ);
 	CO_OBJ obj_buffer;
-	for (unsigned int i = 0; i < self->Used; i++) {
-		driver->Nvm->Read(i*size, (uint8_t*)&obj_buffer, size);
-		t_buffer[t_used++] = obj_buffer;
+	int i = 0, key = 0;
+	//for (unsigned int i = 0; i < self->Used; i++) {
+	for(;;) {
+		driver->Nvm->Read(i++*size, (uint8_t*)&obj_buffer, size);
+		key = ((uint8_t*)&obj_buffer)[3];
+		if (key >= 0xC0) break;
+		//t_buffer[t_used++] = obj_buffer;
+		ODEntryToBuffer(driver, self, &obj_buffer);
 	}
 #endif
 }
@@ -203,7 +248,7 @@ void ODInit (OD_DYN *self, CO_OBJ *root, uint32_t length)
 
 }
 
-void ODAddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA data, CO_IF_DRV* driver)
+int ODAddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA data, CO_IF_DRV* driver)
 {	//Copied wholesale from canopen-stack/example/dynamic-od/app/app_dict.c then modified
     CO_OBJ  temp;
 
@@ -215,7 +260,7 @@ void ODAddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA da
     //CO_OBJ *od = self->Root;
     ObjSet(&temp, key, type, data);
 
-    ODEntryToBuffer(driver, self, &temp);
+    return ODEntryToBuffer(driver, self, &temp);
 }
 
 static void ODCreateSDOServer(OD_DYN *self, uint8_t srv, uint32_t request, uint32_t response, CO_IF_DRV* driver)
@@ -229,27 +274,6 @@ static void ODCreateSDOServer(OD_DYN *self, uint8_t srv, uint32_t request, uint3
     ODAddUpdate(self, CO_KEY(0x1200+srv, 2, CO_UNSIGNED32|CO_OBJ_DN_R_), 0, (CO_DATA)(response), driver);
 }
 
-/*
-static void ODCreateTPDOCom(OD_DYN *self, uint8_t num, uint32_t id, uint8_t type, uint16_t inhibit, uint16_t evtimer, CO_IF_DRV* driver)
-{
-    ODAddUpdate(self, CO_KEY(0x1800+num, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(0x05), driver);
-    ODAddUpdate(self, CO_KEY(0x1800+num, 1, CO_UNSIGNED32|CO_OBJ_DN_R_), 0, (CO_DATA)(id), driver);
-    ODAddUpdate(self, CO_KEY(0x1800+num, 2, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(type), driver);
-    ODAddUpdate(self, CO_KEY(0x1800+num, 3, CO_UNSIGNED16|CO_OBJ_D__RW), 0, (CO_DATA)(inhibit), driver);
-    ODAddUpdate(self, CO_KEY(0x1800+num, 5, CO_UNSIGNED16|CO_OBJ_D__RW), CO_TEVENT, (CO_DATA)(evtimer), driver);
-}
-
-static void ODCreateTPDOMap(OD_DYN *self, uint8_t num, uint32_t *map, uint8_t len, CO_IF_DRV* driver)
-{
-    uint8_t n;
-
-    ODAddUpdate(self, CO_KEY(0x1A00+num, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(len), driver);
-    for (n = 0; n < len; n++) {
-        ODAddUpdate(self, CO_KEY(0x1A00+num, 1+n, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(map[n]), driver);
-    }
-}
-*/
-
 //mandatory entries for CiA301 compliance
 #define ODLIST_SIZE 9
 uint32_t ODList [ODLIST_SIZE] = {	CO_KEY(0x1000, 0, CO_UNSIGNED32|CO_OBJ_D__R_),	// Device Type
@@ -261,8 +285,6 @@ uint32_t ODList [ODLIST_SIZE] = {	CO_KEY(0x1000, 0, CO_UNSIGNED32|CO_OBJ_D__R_),
                       			CO_KEY(0x1018, 2, CO_UNSIGNED32|CO_OBJ_D__R_),	//  | Product code
                       			CO_KEY(0x1018, 3, CO_UNSIGNED32|CO_OBJ_D__R_),	//  | Revision number
                       			CO_KEY(0x1018, 4, CO_UNSIGNED32|CO_OBJ_D__R_)};	//  | Serial number
-
-#define OD_SIZE 256	//TODO: replace with better value
 
 /* function to setup the quickstart object dictionary */
 static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
@@ -276,63 +298,65 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 	//[ ]	if not:
 	//  |	[ ]	if content is an OD: store in buffer and add necessary entries
 	//  |	[ ]	else erase and write necessary entries
-    
+
     int size = sizeof(uint32_t);
     int matches = 0;
     int odindex = 0;
+    int odoffset = 0;
     while (matches < ODLIST_SIZE && odindex < OD_SIZE) {
 	uint32_t buffer;
-	driver->Nvm->Read((odindex)*size, (uint8_t*)&buffer, size);
+	driver->Nvm->Read((odindex + odoffset)*size, (uint8_t*)&buffer, size);
 	if (buffer == ODList[matches]) {	//if we found one of our entries, move onto the next
 		matches++;
 		odindex += 3;
 		continue;
 	}
-	if (buffer == 0xFFFFFFFF) break;	//we've reached the end of NVM
-	odindex++;
+	if (buffer == OD_END_DW) {		//if we found the end of this dictionary, reset values and go on
+		odoffset = odindex + 1;		//end dword takes up 1 address
+		odindex = 0;
+		matches = 0;
+		continue;
+	}
+	if (buffer >= 0xBFFFFFFF || (odindex + odoffset) >= NVM_CHOS_SIZE) break;	//we've reached the end of NVM (0xBFFF is the max index)
+	odindex += 3;	//assume it must have been a valid entry and move on
     }
-    if (matches == ODLIST_SIZE) return;	//we have a functional minimal OD: nothing to do here
+    //self->Used += odindex/3;
+    if (self->Used < odindex/3) self->Used = odindex/3;
+    //if (matches == ODLIST_SIZE) return;		//we have a functional minimal OD: nothing to do here
 
+    if (matches != ODLIST_SIZE) {
 
+   	 if (set_od_root((CO_OBJ*)((uint32_t)self->Root + odoffset*sizeof(CO_OBJ*))) == -1)
+   	         for(;;);	//for ease of debugging ( XXX do something cleaner)
 
-    Obj1001_00_08 = 0;
+   	 Obj1001_00_08 = 0;
 
-    ODAddUpdate(self, CO_KEY(0x1000, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x00000000), driver);
-    ODAddUpdate(self, CO_KEY(0x1001, 0, CO_UNSIGNED8 |CO_OBJ___PR_), 0, (CO_DATA)(&Obj1001_00_08), driver);
-    ODAddUpdate(self, CO_KEY(0x1005, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x80), driver);	//TODO: add node ID to that
-    ODAddUpdate(self, CO_KEY(0x1017, 0, CO_UNSIGNED16|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
-    ODAddUpdate(self, CO_KEY(0x1018, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(4), driver);
-    ODAddUpdate(self, CO_KEY(0x1018, 1, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
-    ODAddUpdate(self, CO_KEY(0x1018, 2, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
-    ODAddUpdate(self, CO_KEY(0x1018, 3, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
-    ODAddUpdate(self, CO_KEY(0x1018, 4, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
+   	 ODAddUpdate(self, CO_KEY(0x1000, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x00000000), driver);
+   	 ODAddUpdate(self, CO_KEY(0x1001, 0, CO_UNSIGNED8 |CO_OBJ___PR_), 0, (CO_DATA)(&Obj1001_00_08), driver);
+   	 ODAddUpdate(self, CO_KEY(0x1005, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x80), driver);	//TODO: add node ID to that
+   	 ODAddUpdate(self, CO_KEY(0x1017, 0, CO_UNSIGNED16|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
+   	 ODAddUpdate(self, CO_KEY(0x1018, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(4), driver);
+   	 ODAddUpdate(self, CO_KEY(0x1018, 1, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
+   	 ODAddUpdate(self, CO_KEY(0x1018, 2, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
+   	 ODAddUpdate(self, CO_KEY(0x1018, 3, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
+   	 ODAddUpdate(self, CO_KEY(0x1018, 4, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
 
-    ODCreateSDOServer(self, 0, CO_COBID_SDO_REQUEST(), CO_COBID_SDO_RESPONSE(), driver);
-
-    /*
-    uint32_t map[3];
-
-    ODCreateTPDOCom(self, 0, CO_COBID_TPDO_DEFAULT(0), 254, 0, 0, driver);
-
-    map[0] = CO_LINK(0x2100, 1, 32);
-    map[1] = CO_LINK(0x2100, 2,  8);
-    map[2] = CO_LINK(0x2100, 3,  8);
-    ODCreateTPDOMap(self, 0, map, 3, driver);
-
-    ODAddUpdate(self, CO_KEY(0x2100, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(3), driver);
-    ODAddUpdate(self, CO_KEY(0x2100, 1, CO_UNSIGNED32|CO_OBJ___PR_), 0, (CO_DATA)(&Obj2100_01_20), driver);
-    ODAddUpdate(self, CO_KEY(0x2100, 2, CO_UNSIGNED8 |CO_OBJ___PR_), 0, (CO_DATA)(&Obj2100_02_08), driver);
-    ODAddUpdate(self, CO_KEY(0x2100, 3, CO_UNSIGNED8 |CO_OBJ___PR_), CO_TASYNC, (CO_DATA)(&Obj2100_03_08), driver);
-    */
-
-    ODNvmToBuffer(driver, self);	//we shouldnt have written to NVM by now, but just in case...
-    ODBufferToNvm(driver, self);
-    ODClearBuffer();
+   	 ODCreateSDOServer(self, 0, CO_COBID_SDO_REQUEST(), CO_COBID_SDO_RESPONSE(), driver);
+	
+   }
+   ODNvmToBuffer(driver, self);	//we shouldnt have written to NVM by now, but just in case...
+   if (!get_canopen_ready()) {
+	   ODEraseNvm();	// wiping nvm causes crash after startup for some reason
+	   self->Used = 0;
+   }
+   ODBufferToNvm(driver, self);
+   ODClearBuffer();
 }
+
 // END OD SECTION
 
 CO_NODE_SPEC co_node_spec = {
-    0x11,	/* default Node-Id (currently arbitrary)*/
+    0x01,					/* default Node-Id (arbitrary)		*/
     APPCONF_CAN_BAUD_RATE,   			/* default Baudrate			*/
     (CO_OBJ*)NVM_CHOS_ADDRESS,			/* pointer to object dictionary  	*/
     APP_OBJ_N,        				/* object dictionary max length  	*/
@@ -352,11 +376,12 @@ void co_vt_update(void *p) {
 	COTmrProcess(&(co_node.Tmr));
 	COTmrService(&(co_node.Tmr));
 	chVTSetI(&co_vt, MS2ST(1), co_vt_update, NULL);
+
 }
 
 void	canopen_driver_init() {
-	co_node_spec.NodeId = 0x11;//HW_DEFAULT_ID & 0x7FF;
 
+	co_node_spec.NodeId = app_get_configuration()->controller_id;
 #if OD == STATIC
 	FLASH_Unlock();
 	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
@@ -366,7 +391,7 @@ void	canopen_driver_init() {
 	FLASH_Lock();
 #endif
 	/* Clear all entries in object dictionary */
-	ODInit(&AppOD, (CO_OBJ*)NVM_CHOS_ADDRESS, APP_OBJ_N);
+	//ODInit(&AppOD, (CO_OBJ*)NVM_CHOS_ADDRESS, APP_OBJ_N);
 	
 	/* Setup the object dictionary during runtime */
 	ODCreateDict(&AppOD, &AppDriver);
@@ -383,3 +408,7 @@ void	canopen_driver_init() {
 	chVTSetI(&co_vt, MS2ST(1), co_vt_update, NULL);
 
 }
+
+static uint8_t _ready = 0;
+uint8_t get_canopen_ready() {return _ready;}
+void set_canopen_ready(uint8_t ready) {_ready = ready;}
