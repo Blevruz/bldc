@@ -7,6 +7,7 @@
 #include "co_nvm_chos.h"
 #include "co_timer_swcycle.h"
 #include "app.h"
+#include "nrf_driver.h"
 
 extern CO_NODE_SPEC co_node_spec;
 extern CO_NODE co_node;
