@@ -41,6 +41,7 @@
 #include "commands.h"
 #include "timeout.h"
 #include "canopen_driver.h"
+#include "canopen_pds_objects.h"	
 
 #include <math.h>
 #include <string.h>
@@ -78,11 +79,14 @@ static void app_cot_start_can(void) {
 
 // User CANopen object type
 
+float RPMFreq = 0;
+float DutyCommand = 0;
+float CurrentCommand = 0;
 static float mc_enc_ratio = 0;
 
 uint32_t RPMSize (CO_OBJ *obj, CO_NODE *node, uint32_t width) {
 	(void)obj; (void)node; (void)width;
-	return 4;
+	return 2;
 }
 CO_ERR   RPMInit (CO_OBJ *obj, CO_NODE *node) {
 	(void)node;
@@ -91,26 +95,29 @@ CO_ERR   RPMInit (CO_OBJ *obj, CO_NODE *node) {
 }
 CO_ERR   RPMRead (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 	(void)node;
-	if (size < 4)
+	if (size < 2)
 		return CO_ERR_OBJ_SIZE;
 	*(float*)buffer = *(float*)(obj->Data);
 	return CO_ERR_NONE;
 }
 CO_ERR   RPMWrite(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 	(void)node;
-	if (size != 4)
+	if (((ControlWord & CONTROL_WORD_COMMAND_MASK)& ~0x9) == 0x2) return CO_ERR_NONE;	//kludge for control word-rpm command interaction
+												//TODO: replace this with state machine check
+	/*
+	if (size != 2)
 		return CO_ERR_OBJ_SIZE;
+	*/
+	int32_t o_data = *(int16_t*)(buffer) * mc_enc_ratio;
+	/*
 	int32_t o_data = 0;
 #if VCSW == 1	//case where speed is encoded as the 2 LSBytes
 	o_data = *(int16_t*)(buffer+2) * mc_enc_ratio;
 #else
 	o_data = *(int32_t*)buffer * mc_enc_ratio;
 #endif
+	*/
 	mc_interface_set_pid_speed((int32_t)o_data);
-/*
-	if (o_data == 0)
-		mc_interface_set_current_rel(0.0);
-*/
 	timeout_reset();
 	*(uint32_t*)obj->Data = o_data;
 	return CO_ERR_NONE;
@@ -123,7 +130,6 @@ CO_OBJ_TYPE COTRPM = {
 	RPMWrite
 };
 
-float RPMFreq = 0;
 #if DUNE_OD == DUNE_NODE
 int32_t RPMMeasurement = 0;
 int8_t FetTempMeasurement = 0;
@@ -156,6 +162,8 @@ static void terminal_update_od(int argc, const char **argv);
 static volatile bool stop_now = true; static volatile bool is_running = false;
 static volatile bool do_rpm_callback = true;
 
+#define MAGIC_FLOAT_TO_UINT32	0x1000000
+
 void RPM_TPdo_Callback(void* arg) {
 	(void)arg;
 	if (!do_rpm_callback) return;
@@ -180,8 +188,8 @@ void RPM_TPdo_Callback(void* arg) {
 	MotorTempMeasurement = mc_interface_temp_motor_filtered();
 	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 1);
 
-	VdcBus_kV = mc_interface_get_input_voltage_filtered();
-	InputCurrentMeasurement = (uint32_t)(mc_interface_get_tot_current_in_filtered() * 1e2);
+	VdcBus_kV = mc_interface_get_input_voltage_filtered() * MAGIC_FLOAT_TO_UINT32 / 1000;	//divided by 1000 because this message is in kilovolts
+	InputCurrentMeasurement = (uint32_t)(mc_interface_get_tot_current_in_filtered() * MAGIC_FLOAT_TO_UINT32);
 	COTPdoTrigPdo((CO_TPDO*)(&co_node.TPdo), 2);
 
 #elif DUNE_OD == MULTITHRUSTER
@@ -344,28 +352,31 @@ void app_canopen_test_start(void) {
 					//subindex 4 reserved
 		ODAddUpdate(&AppOD, CO_KEY(0x1802, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
 		
-		ODAddUpdate(&AppOD, CO_KEY(0x6078, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&InputCurrentMeasurement), co_node_spec.Drv);	// Input current
-		ODAddUpdate(&AppOD, CO_KEY(0x6079, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&VdcBus_kV), co_node_spec.Drv);	// Motor Voltage
+		ODAddUpdate(&AppOD, CO_KEY(0x311C, 0x02, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&InputCurrentMeasurement), co_node_spec.Drv);	// Input current
+		ODAddUpdate(&AppOD, CO_KEY(0x3116, 0x2F, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&VdcBus_kV), co_node_spec.Drv);	// Motor Voltage
 	
 		ODAddUpdate(&AppOD, CO_KEY(0x1A02, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(2), co_node_spec.Drv);
-		ODAddUpdate(&AppOD, CO_KEY(0x1A02, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6079, 0, 32), co_node_spec.Drv);	// Input Current
-		ODAddUpdate(&AppOD, CO_KEY(0x1A02, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6078, 0, 32), co_node_spec.Drv);	// Motor Voltage
+		ODAddUpdate(&AppOD, CO_KEY(0x1A02, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x311C, 0x02, 32), co_node_spec.Drv);	// Input Current
+		ODAddUpdate(&AppOD, CO_KEY(0x1A02, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x3116, 0x2F, 32), co_node_spec.Drv);	// Motor Voltage
 #endif
 	
-		// RPDO #1: 4 bytes int set RPM
+		// RPDO #1: 2 byte int control word, 2 bytes int set RPM
 		ODAddUpdate(&AppOD, CO_KEY(0x1400, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
 		ODAddUpdate(&AppOD, CO_KEY(0x1400, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000200), co_node_spec.Drv);	//see evobldc EDS
 		ODAddUpdate(&AppOD, CO_KEY(0x1400, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
 	
+		ODAddUpdate(&AppOD, CO_KEY(0x6040, 0, CO_UNSIGNED16	| CO_OBJ____RW), CO_T_CONTROL_WORD, (CO_DATA)(&ControlWord), co_node_spec.Drv);
+
 		ODAddUpdate(&AppOD, CO_KEY(0x6042, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
-		ODAddUpdate(&AppOD, CO_KEY(0x6042, 1, CO_UNSIGNED32	| CO_OBJ____RW), CO_TRPM, (CO_DATA)(&RPMFreq), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x6042, 1, CO_UNSIGNED16	| CO_OBJ____RW), CO_TRPM, (CO_DATA)(&RPMFreq), co_node_spec.Drv);
 	
-		ODAddUpdate(&AppOD, CO_KEY(0x1600, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
-		ODAddUpdate(&AppOD, CO_KEY(0x1600, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6042, 1, 32), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1600, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1600, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6040, 0, 16), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1600, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6042, 1, 16), co_node_spec.Drv);
 		
 		// RPDO #2: 1 byte int do readings
 		ODAddUpdate(&AppOD, CO_KEY(0x1401, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
-		ODAddUpdate(&AppOD, CO_KEY(0x1401, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000100), co_node_spec.Drv);	//see evobldc EDS
+		ODAddUpdate(&AppOD, CO_KEY(0x1401, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000100), co_node_spec.Drv);
 		ODAddUpdate(&AppOD, CO_KEY(0x1401, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
 	
 		ODAddUpdate(&AppOD, CO_KEY(0x4444, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
@@ -373,17 +384,30 @@ void app_canopen_test_start(void) {
 	
 		ODAddUpdate(&AppOD, CO_KEY(0x1601, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
 		ODAddUpdate(&AppOD, CO_KEY(0x1601, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x4444, 1, 8), co_node_spec.Drv);
-		/*
-		ODNvmToBuffer(co_node_spec.Drv, &AppOD);
-	
-		ODBufferToNvm(co_node_spec.Drv, &AppOD);
-	
-		ODClearBuffer();
-	
-		CORPdoInit(co_node.RPdo, &co_node);
-		COTPdoInit(co_node.TPdo, &co_node);
-		*/
 		
+		// RPDO #3: 2 byte int control word, 2 byte int set PWM duty cycle (fixed point, multiplied by 0xFFFF)
+		ODAddUpdate(&AppOD, CO_KEY(0x1402, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1402, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000300), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1402, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
+	
+		ODAddUpdate(&AppOD, CO_KEY(0x6050, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x6050, 1, CO_UNSIGNED16	| CO_OBJ____RW), CO_T_DUTY_COMMAND, (CO_DATA)(&DutyCommand), co_node_spec.Drv);
+	
+		ODAddUpdate(&AppOD, CO_KEY(0x1602, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1602, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6040, 0, 16), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1602, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6050, 1, 16), co_node_spec.Drv);
+	
+		// RPDO #4: 2 byte int control word, 2 byte int set current (fixed point in A, multiplied by 0xFF)
+		ODAddUpdate(&AppOD, CO_KEY(0x1403, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1403, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000400), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1403, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);
+	
+		ODAddUpdate(&AppOD, CO_KEY(0x6060, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x6060, 1, CO_UNSIGNED16	| CO_OBJ____RW), CO_T_CURRENT_COMMAND, (CO_DATA)(&CurrentCommand), co_node_spec.Drv);
+	
+		ODAddUpdate(&AppOD, CO_KEY(0x1603, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1603, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6040, 0, 16), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x1603, 2, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6060, 1, 16), co_node_spec.Drv);
 	
 		stop_now = false;
 		chThdCreateStatic(cot_thread_wa, sizeof(cot_thread_wa),

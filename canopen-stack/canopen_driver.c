@@ -121,17 +121,17 @@ void	ODEraseNvm() {
 	if (get_canopen_ready()) {
 
 		if (nrf_driver_ext_nrf_running()) {
-			nrf_driver_pause(6000);
+			nrf_driver_pause(10000);
 		}
+
+		mc_interface_unlock();
 	
-		mc_interface_ignore_input_both(5000);
+		mc_interface_ignore_input_both(10000);
 		mc_interface_release_motor_override_both();
+
+		mc_interface_lock();
 	
-		/*	FOR SOME REASON doesn't work?
-		if (!mc_interface_wait_for_motor_release_both(3.0)) {
-			return; 
-		}
-		*/
+		while (!mc_interface_wait_for_motor_release_both(3));
 	
 		utils_sys_lock_cnt();
 		timeout_configure_IWDT_slowest();
