@@ -43,6 +43,8 @@
 #include "canopen_driver.h"
 #include "canopen_pds_objects.h"	
 
+//#include "TEMP_ring_buffer.h"
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -129,6 +131,22 @@ CO_OBJ_TYPE COTRPM = {
 	RPMRead,
 	RPMWrite
 };
+
+
+bool canopen_sid_callback(uint32_t id, uint8_t *data, uint8_t len) {
+	//stores frame in buffer so it can be accessed by CAN driver
+	if ((can_ring_buffer.wp+1)%CAN_RINGBUFFER_SIZE != can_ring_buffer.rp){
+		t_can_frame *write_frame = &(can_ring_buffer.data[can_ring_buffer.wp]);
+		write_frame->id = id;
+		write_frame->len = len;
+		memcpy(write_frame->data, data, write_frame->len);
+
+		can_ring_buffer.wp = (++can_ring_buffer.wp)%CAN_RINGBUFFER_SIZE;
+	}
+	//calls CONodeProcess to call its CAN driver to process the frame
+	CONodeProcess(&co_node);	//TODO: put in args
+	
+}
 
 #if DUNE_OD == DUNE_NODE
 int32_t RPMMeasurement = 0;
@@ -413,6 +431,7 @@ void app_canopen_test_start(void) {
 		chThdCreateStatic(cot_thread_wa, sizeof(cot_thread_wa),
 				NORMALPRIO, cot_thread, NULL);
 	
+		comm_can_set_sid_rx_callback(canopen_sid_callback);
 		update_od();
 	}
 

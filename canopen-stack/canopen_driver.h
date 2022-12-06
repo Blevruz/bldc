@@ -3,12 +3,27 @@
 
 #include "conf_general.h"
 #include "co_core.h"
-#include "co_can_chos.h"
+#include "co_can_vpkg.h"
 #include "co_nvm_chos.h"
 #include "co_timer_swcycle.h"
 #include "app.h"
 #include "nrf_driver.h"
+#include <stdint.h>
+typedef struct {
+	uint32_t id;
+	uint8_t data[8];
+	uint8_t len;
+} t_can_frame;
 
+#define CAN_RINGBUFFER_SIZE	32
+
+typedef struct t_co_ring_buffer{
+	t_can_frame data[CAN_RINGBUFFER_SIZE];
+	uint8_t wp;	//write pos
+	uint8_t rp;	//read pos
+} co_ring_buffer;
+
+extern co_ring_buffer can_ring_buffer;
 extern CO_NODE_SPEC co_node_spec;
 extern CO_NODE co_node;
 typedef struct {

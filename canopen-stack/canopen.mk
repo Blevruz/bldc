@@ -19,7 +19,7 @@ CANOPENSRC =	canopen-stack/canopen_driver.c \
 			canopen-stack/canopen/source/co_tmr.c \
 			canopen-stack/canopen/source/co_ver.c \
 		canopen-stack/driver/source/ \
-			canopen-stack/driver/source/co_can_chos.c \
+			canopen-stack/driver/source/co_can_vpkg.c \
 			canopen-stack/driver/source/co_timer_chos.c \
 			canopen-stack/driver/source/co_nvm_chos.c \
 			canopen-stack/driver/source/co_timer_swcycle.c

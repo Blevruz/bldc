@@ -1246,10 +1246,6 @@ static THD_FUNCTION(cancom_read_thread, arg) {
 		}
 
 //#ifdef USE_CANOPEN
-		if (get_canopen_ready()) {
-			CONodeProcess(&co_node);
-			continue;
-		}
 //#else
 		msg_t result = canReceive(&HW_CAN_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 

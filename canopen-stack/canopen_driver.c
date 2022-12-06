@@ -7,9 +7,10 @@
 #define OD_SIZE 256	//TODO: replace with better value
 #define OD_END_DW	0xCAFECAFE	//double word that marks the end of the dictionary
 
+co_ring_buffer can_ring_buffer;
 CO_NODE co_node;
 struct CO_IF_DRV_T AppDriver = {
-    &ChOSCanDriver,
+    &VescPkgCanDriver,
     &SwCycleTimerDriver,
     &ChOSNvmDriver
 };
