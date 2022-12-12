@@ -6,6 +6,7 @@
 
 #define FSA_FAULT_BIT		(1<<7)	//marks fault handling modes
 
+
 typedef enum {
 	FSA_S_START = 0,
 	FSA_S_NOT_READY_TO_SWITCH_ON,
@@ -19,6 +20,8 @@ typedef enum {
 	FSA_S_FAULT_REACTION_ACTIVE,
 } fsa_states;
 extern int fsa_state;
+
+#define FSA_CHECK_MOTOR_ON	(fsa_state == FSA_S_OPERATION_ENABLED)
 
 typedef struct {
 	int prev_state;

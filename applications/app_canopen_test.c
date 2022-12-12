@@ -87,70 +87,6 @@ float DutyCommand = 0;
 float CurrentCommand = 0;
 static float mc_enc_ratio = 0;
 
-uint32_t RPMSize (CO_OBJ *obj, CO_NODE *node, uint32_t width) {
-	(void)obj; (void)node; (void)width;
-	return 2;
-}
-CO_ERR   RPMInit (CO_OBJ *obj, CO_NODE *node) {
-	(void)node;
-	obj->Data = 0;
-	return CO_ERR_NONE;
-}
-CO_ERR   RPMRead (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
-	(void)node;
-	if (size < 2)
-		return CO_ERR_OBJ_SIZE;
-	*(float*)buffer = *(float*)(obj->Data);
-	return CO_ERR_NONE;
-}
-CO_ERR   RPMWrite(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
-	(void)node;
-	if (((ControlWord & CONTROL_WORD_COMMAND_MASK)& ~0x9) == 0x2) return CO_ERR_NONE;	//kludge for control word-rpm command interaction
-												//TODO: replace this with state machine check
-	/*
-	if (size != 2)
-		return CO_ERR_OBJ_SIZE;
-	*/
-	int32_t o_data = *(int16_t*)(buffer) * mc_enc_ratio;
-	/*
-	int32_t o_data = 0;
-#if VCSW == 1	//case where speed is encoded as the 2 LSBytes
-	o_data = *(int16_t*)(buffer+2) * mc_enc_ratio;
-#else
-	o_data = *(int32_t*)buffer * mc_enc_ratio;
-#endif
-	*/
-	mc_interface_set_pid_speed((int32_t)o_data);
-	timeout_reset();
-	*(uint32_t*)obj->Data = o_data;
-	return CO_ERR_NONE;
-}
-
-CO_OBJ_TYPE COTRPM = {
-	RPMSize,
-	0,
-	RPMRead,
-	RPMWrite
-};
-
-
-/*
-bool canopen_sid_callback(uint32_t id, uint8_t *data, uint8_t len) {
-	//stores frame in buffer so it can be accessed by CAN driver
-	if ((can_ring_buffer.wp+1)%CAN_RINGBUFFER_SIZE != can_ring_buffer.rp){
-		t_can_frame *write_frame = &(can_ring_buffer.data[can_ring_buffer.wp]);
-		write_frame->id = id;
-		write_frame->len = len;
-		memcpy(write_frame->data, data, write_frame->len);
-
-		can_ring_buffer.wp = (++can_ring_buffer.wp)%CAN_RINGBUFFER_SIZE;
-	}
-	//calls CONodeProcess to call its CAN driver to process the frame
-	CONodeProcess(&co_node);	//TODO: put in args
-	
-}
-*/
-
 #if DUNE_OD == DUNE_NODE
 int32_t RPMMeasurement = 0;
 int8_t FetTempMeasurement = 0;
@@ -166,8 +102,6 @@ float MotorTempMeasurement = 0;
 uint32_t VdcBus_kV = 0;
 uint32_t InputCurrentMeasurement = 0;
 #endif
-
-#define CO_TRPM ((CO_OBJ_TYPE*)&COTRPM)
 
 // Threads
 static THD_FUNCTION(cot_thread, arg);
@@ -390,7 +324,7 @@ void app_canopen_test_start(void) {
 		ODAddUpdate(&AppOD, CO_KEY(0x6040, 0, CO_UNSIGNED16	| CO_OBJ____RW), CO_T_CONTROL_WORD, (CO_DATA)(&ControlWord), co_node_spec.Drv);
 
 		ODAddUpdate(&AppOD, CO_KEY(0x6042, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
-		ODAddUpdate(&AppOD, CO_KEY(0x6042, 1, CO_UNSIGNED16	| CO_OBJ____RW), CO_TRPM, (CO_DATA)(&RPMFreq), co_node_spec.Drv);
+		ODAddUpdate(&AppOD, CO_KEY(0x6042, 1, CO_UNSIGNED16	| CO_OBJ____RW), CO_T_RPM_COMMAND, (CO_DATA)(&RPMFreq), co_node_spec.Drv);
 	
 		ODAddUpdate(&AppOD, CO_KEY(0x1600, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
 		ODAddUpdate(&AppOD, CO_KEY(0x1600, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x6040, 0, 16), co_node_spec.Drv);

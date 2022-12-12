@@ -29,8 +29,9 @@ CO_ERR	CONTROL_WORD_Write (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t si
 	uint16_t command = *(uint16_t*)obj->Data & CONTROL_WORD_COMMAND_MASK;
 
 	//TODO: handle ms, oms, and h here.
+	if (command == 0) return CO_ERR_NONE;
 
-	if (command & CONTROL_WORD_FAULT_RESET) {
+	if (command & CONTROL_WORD_FAULT_RESET) {	// fault reset
 		if (fault_reset_up) {
 			return CO_ERR_NONE;
 		}
@@ -39,32 +40,38 @@ CO_ERR	CONTROL_WORD_Write (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t si
 		return FsaAttemptTransition(15) >= 0 ? CO_ERR_NONE : -1;
 	}	// we now know that bit 7 is low
 	fault_reset_up = 0;
-	if ((command & CONTROL_WORD_DISABLE_VOLTAGE_N) == 0) {
+	if ((command & CONTROL_WORD_DISABLE_VOLTAGE_N) == 0) {	// disable voltage
 	        //TODO: disable voltage
 		if (FsaAttemptTransition( 9) > 0)	return CO_ERR_NONE;
 	        if (FsaAttemptTransition( 7) > 0)	return CO_ERR_NONE;
 	        if (FsaAttemptTransition(12) > 0)	return CO_ERR_NONE;
 		return -1;	//TODO: find better error value
 	}       // we now know that bit 1 is high
-	if ((command & CONTROL_WORD_QUICK_STOP_N) == 0) {
+	if ((command & CONTROL_WORD_QUICK_STOP_N) == 0) {	// quick stop
 	        //TODO: implement more nuanced setup described in 402 part 2 8.4.1
 	        //mc_interface_set_current_rel(0.0);
 		if (FsaAttemptTransition(11) > 0)	return CO_ERR_NONE;
 	        if (FsaAttemptTransition( 7) > 0)	return CO_ERR_NONE;
 		return -1;	//TODO: find better error value
 	}       // we now know that bit 2 is high
-	if ((command & CONTROL_WORD_SHUTDOWN_N) == 0) {
+	if ((command & CONTROL_WORD_SHUTDOWN_N) == 0) {		// shutdown
 		if (FsaAttemptTransition( 2) > 0)	return CO_ERR_NONE;
 		if (FsaAttemptTransition( 6) > 0)	return CO_ERR_NONE;
 		if (FsaAttemptTransition( 8) > 0)	return CO_ERR_NONE;
 		return -1;	//TODO: find better error value
 	}       // we now know that bit 0 is high
-	if ((command & CONTROL_WORD_SWITCH_ON_N) == 0) {
+	if ((command & CONTROL_WORD_SWITCH_ON_N) == 0) {	// switch on / disable op
 		if (FsaAttemptTransition( 3) > 0)	return CO_ERR_NONE;
 		return -1;	//TODO: find better error value
 	}	//we now know that bit 3 is high
+								// switch on + enable op
 	//TODO: implement switch on + enable operation OR enable operation depending on FSA state
-	return CO_ERR_NONE;
+	
+	if (FsaAttemptTransition( 4) > 0)	return CO_ERR_NONE;
+	if (FsaAttemptTransition(16) > 0)	return CO_ERR_NONE;
+	if (FsaAttemptTransition( 3) > 0)	return CO_ERR_NONE;
+
+	return -1;
 }
 
 const CO_OBJ_TYPE COTCONTROLWORD = {
@@ -144,5 +151,49 @@ const CO_OBJ_TYPE COTCURRENTCOMMAND = {
 	0,
 	CURRENT_COMMAND_Read,
 	CURRENT_COMMAND_Write
+};
+
+
+
+uint32_t RPM_COMMAND_Size (CO_OBJ *obj, CO_NODE *node, uint32_t width) {
+	(void)obj; (void)node; (void)width;
+	return 2;
+}
+CO_ERR   RPM_COMMAND_Init (CO_OBJ *obj, CO_NODE *node) {
+	(void)node;
+	obj->Data = 0;
+	return CO_ERR_NONE;
+}
+CO_ERR   RPM_COMMAND_Read (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
+	(void)node;
+	if (size < 2)
+		return CO_ERR_OBJ_SIZE;
+	*(float*)buffer = *(float*)(obj->Data);
+	return CO_ERR_NONE;
+}
+CO_ERR   RPM_COMMAND_Write(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
+	(void)node;
+	static float mc_enc_ratio = 0;
+	if (mc_enc_ratio == 0) {
+		mc_configuration mc_config;
+		conf_general_read_mc_configuration(&mc_config, false);
+		mc_enc_ratio = mc_config.foc_encoder_ratio;
+	}
+
+	if (!FSA_CHECK_MOTOR_ON)	return CO_ERR_NONE;
+	//if (((ControlWord & CONTROL_WORD_COMMAND_MASK)& ~0x9) == 0x2) return CO_ERR_NONE;	//kludge for control word-rpm command interaction
+												//TODO: replace this with state machine check
+	int32_t o_data = *(int16_t*)(buffer) * mc_enc_ratio;
+	mc_interface_set_pid_speed((int32_t)o_data);
+	timeout_reset();
+	*(uint32_t*)obj->Data = o_data;
+	return CO_ERR_NONE;
+}
+
+const CO_OBJ_TYPE COTRPMCOMMAND = {
+	RPM_COMMAND_Size,
+	0,
+	RPM_COMMAND_Read,
+	RPM_COMMAND_Write
 };
 

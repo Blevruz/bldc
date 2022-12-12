@@ -24,6 +24,7 @@
 
 #include "co_core.h"
 #include "mc_interface.h"
+#include "canopen_pds_fsa.h"
 
 #define CONTROL_WORD_COMMAND_MASK	0x8F	//keeps only the bits used in Table 27
 #define CONTROL_WORD_SHUTDOWN_N		0x01	//bit 3 is X
@@ -44,5 +45,8 @@ extern const CO_OBJ_TYPE COTDUTYCOMMAND;
 
 extern const CO_OBJ_TYPE COTCURRENTCOMMAND;
 #define CO_T_CURRENT_COMMAND ((CO_OBJ_TYPE*)&COTCURRENTCOMMAND)
+
+extern const CO_OBJ_TYPE COTRPMCOMMAND;
+#define CO_T_RPM_COMMAND ((CO_OBJ_TYPE*)&COTRPMCOMMAND)
 
 #endif	//CANOPEN_PDS_OBJECTS_H_

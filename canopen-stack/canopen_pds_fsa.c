@@ -108,6 +108,7 @@ static int 	on_transition_10() {
 
 // transition 11: quickstop 
 static int 	on_transition_11() {	//TODO
+	mc_interface_set_current(0.0);
 	return 1;
 }
 
