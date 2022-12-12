@@ -34,7 +34,7 @@ typedef struct {
 extern OD_DYN AppOD;
 
 
-void	canopen_driver_init(void);
+int	canopen_driver_init(void);
 
 void co_vt_update(void *p);
 
@@ -51,6 +51,8 @@ void ODClearBuffer(void);
 void ODInit (OD_DYN *self, CO_OBJ *root, uint32_t length);
 
 int ODAddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA data, CO_IF_DRV* driver);
+
+bool canopen_sid_callback(uint32_t id, uint8_t *data, uint8_t len);
 
 uint8_t	get_canopen_ready(void);
 void	set_canopen_ready(uint8_t ready);

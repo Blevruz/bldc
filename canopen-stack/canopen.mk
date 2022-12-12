@@ -1,4 +1,6 @@
 CANOPENSRC =	canopen-stack/canopen_driver.c \
+		canopen-stack/canopen_pds_fsa.c \
+		canopen-stack/canopen_pds_objects.c \
 		canopen-stack/canopen/source/callbacks.c \
 		canopen-stack/canopen/source/ \
 			canopen-stack/canopen/source/co_core.c \

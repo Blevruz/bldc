@@ -414,7 +414,7 @@ void co_vt_update(void *p) {
 
 }
 
-void	canopen_driver_init() {
+int	canopen_driver_init() {
 
 	co_node_spec.NodeId = app_get_configuration()->controller_id;
 #if OD == STATIC
@@ -436,12 +436,28 @@ void	canopen_driver_init() {
 	
 	CO_ERR err = CONodeGetErr(&co_node);
 	if (err != CO_ERR_NONE) {
-		while(1);
+		return -1;
+		//while(1);
 	}
 	CONodeStart(&co_node);
 	CONmtSetMode(&co_node.Nmt, CO_OPERATIONAL);
 	chVTSetI(&co_vt, MS2ST(1), co_vt_update, NULL);
+	return 1;
+}
 
+bool canopen_sid_callback(uint32_t id, uint8_t *data, uint8_t len) {
+	//stores frame in buffer so it can be accessed by CAN driver
+	if ((can_ring_buffer.wp+1)%CAN_RINGBUFFER_SIZE != can_ring_buffer.rp){
+		t_can_frame *write_frame = &(can_ring_buffer.data[can_ring_buffer.wp]);
+		write_frame->id = id;
+		write_frame->len = len;
+		memcpy(write_frame->data, data, write_frame->len);
+
+		can_ring_buffer.wp = (++can_ring_buffer.wp)%CAN_RINGBUFFER_SIZE;
+	}
+	//calls CONodeProcess to call its CAN driver to process the frame
+	CONodeProcess(&co_node);	//TODO: put in args
+	
 }
 
 static uint8_t _ready = 0;

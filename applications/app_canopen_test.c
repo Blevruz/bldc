@@ -40,7 +40,8 @@
 #include "hw.h"
 #include "commands.h"
 #include "timeout.h"
-#include "canopen_driver.h"
+//#include "canopen_driver.h"
+#include "canopen_pds_fsa.h"
 #include "canopen_pds_objects.h"	
 
 //#include "TEMP_ring_buffer.h"
@@ -133,6 +134,7 @@ CO_OBJ_TYPE COTRPM = {
 };
 
 
+/*
 bool canopen_sid_callback(uint32_t id, uint8_t *data, uint8_t len) {
 	//stores frame in buffer so it can be accessed by CAN driver
 	if ((can_ring_buffer.wp+1)%CAN_RINGBUFFER_SIZE != can_ring_buffer.rp){
@@ -147,6 +149,7 @@ bool canopen_sid_callback(uint32_t id, uint8_t *data, uint8_t len) {
 	CONodeProcess(&co_node);	//TODO: put in args
 	
 }
+*/
 
 #if DUNE_OD == DUNE_NODE
 int32_t RPMMeasurement = 0;
@@ -235,7 +238,8 @@ void update_od() {
 // threads here and set up callbacks.
 void app_canopen_test_start(void) {
 
-	canopen_driver_init();	//moved from comm/comm_can.c
+	if (FsaAttemptTransition(0) == -1) for(;;);	//try startup transition; loop is for ease of debugging
+	//canopen_driver_init();	//moved to canopen_pds_fsa.c
 
 	mc_interface_set_pwm_callback(pwm_callback);
 
@@ -430,8 +434,10 @@ void app_canopen_test_start(void) {
 		stop_now = false;
 		chThdCreateStatic(cot_thread_wa, sizeof(cot_thread_wa),
 				NORMALPRIO, cot_thread, NULL);
-	
-		comm_can_set_sid_rx_callback(canopen_sid_callback);
+		
+		
+		if (FsaAttemptTransition(1) == -1) for(;;);	//try startup transition; loop is for ease of debugging
+		//comm_can_set_sid_rx_callback(canopen_sid_callback);
 		update_od();
 	}
 
