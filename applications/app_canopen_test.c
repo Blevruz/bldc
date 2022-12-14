@@ -82,7 +82,7 @@ static void app_cot_start_can(void) {
 
 // User CANopen object type
 
-float RPMFreq = 0;
+uint32_t RPMFreq = 0;
 float DutyCommand = 0;
 float CurrentCommand = 0;
 static float mc_enc_ratio = 0;
@@ -194,7 +194,7 @@ void app_canopen_test_start(void) {
 		ODAddUpdate(&AppOD, CO_KEY(0x1800, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
 	
 		ODAddUpdate(&AppOD, CO_KEY(0x3116, 0, CO_UNSIGNED8	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAA), co_node_spec.Drv);	//status word
-		ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAAAA), co_node_spec.Drv);	//status word
+		ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ____R_), CO_T_STATUS_WORD, (CO_DATA)(&StatusWord), co_node_spec.Drv);	//status word
 		
 		ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&RPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
 	
@@ -252,7 +252,7 @@ void app_canopen_test_start(void) {
 					//subindex 4 reserved
 		ODAddUpdate(&AppOD, CO_KEY(0x1800, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
 	
-		ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0xAAAA), co_node_spec.Drv);	//status word
+		ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ____R_), CO_T_STATUS_WORD, (CO_DATA)(&StatusWord), co_node_spec.Drv);	//status word
 		
 		ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED32	| CO_OBJ____RW), 0, (CO_DATA)(&RPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
 		ODAddUpdate(&AppOD, CO_KEY(0x6078, 0, CO_UNSIGNED16	| CO_OBJ____RW), 0, (CO_DATA)(&InputCurrentMeasurement), co_node_spec.Drv);	// Input current
@@ -272,7 +272,7 @@ void app_canopen_test_start(void) {
 		ODAddUpdate(&AppOD, CO_KEY(0x1800, 5, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0), co_node_spec.Drv);
 	
 		ODAddUpdate(&AppOD, CO_KEY(0x3116, 0, CO_UNSIGNED8	| CO_OBJ_D__RW), 0, (CO_DATA)(0xAA), co_node_spec.Drv);		//status word
-		ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ_D__R_), 0, (CO_DATA)(0xAAAA), co_node_spec.Drv);	//status word
+		ODAddUpdate(&AppOD, CO_KEY(0x6041, 0, CO_UNSIGNED16	| CO_OBJ____R_), CO_T_STATUS_WORD, (CO_DATA)(&StatusWord), co_node_spec.Drv);	//status word
 		
 		ODAddUpdate(&AppOD, CO_KEY(0x6044, 0, CO_UNSIGNED16	| CO_OBJ____RW), 0, (CO_DATA)(&RPMMeasurement), co_node_spec.Drv);	//TODO: replace with a type that handles the speed measurement on read
 	
@@ -341,7 +341,7 @@ void app_canopen_test_start(void) {
 		ODAddUpdate(&AppOD, CO_KEY(0x1601, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x01), co_node_spec.Drv);
 		ODAddUpdate(&AppOD, CO_KEY(0x1601, 1, CO_UNSIGNED32	| CO_OBJ_D__RW), 0, CO_LINK(0x4444, 1, 8), co_node_spec.Drv);
 		
-		// RPDO #3: 2 byte int control word, 2 byte int set PWM duty cycle (fixed point, multiplied by 0xFFFF)
+		// RPDO #3: 2 byte int control word, 2 byte int set PWM duty cycle (fixed point, multiplied by 0x7FFF)
 		ODAddUpdate(&AppOD, CO_KEY(0x1402, 0, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0x02), co_node_spec.Drv);
 		ODAddUpdate(&AppOD, CO_KEY(0x1402, 1, CO_UNSIGNED32	| CO_OBJ_DN_R_), 0, (CO_DATA)(0x00000300), co_node_spec.Drv);
 		ODAddUpdate(&AppOD, CO_KEY(0x1402, 2, CO_UNSIGNED8	| CO_OBJ_D__R_), 0, (CO_DATA)(0xFE), co_node_spec.Drv);

@@ -1,5 +1,7 @@
 #include "canopen_pds_fsa.h"
 
+#define CO_FSA_AUTO_TRANSITION	1
+
 static int	on_transition_0	();
 static int	on_transition_1	();
 static int	on_transition_2	();
@@ -56,16 +58,25 @@ static int 	on_transition_1	() {
 			TPdo_Callback,
 			0);
 	*/
+#if CO_FSA_AUTO_TRANSITION == 1
+	return FsaAttemptTransition(2);
+#endif
 	return 1;
 }
 
 // transition 2: none
 static int 	on_transition_2	() {	
+#if CO_FSA_AUTO_TRANSITION == 1
+	return FsaAttemptTransition(3);
+#endif
 	return 1;
 }
 
 // transition 3: motor power on
 static int 	on_transition_3	() {	//TODO
+#if CO_FSA_AUTO_TRANSITION == 1
+	return FsaAttemptTransition(4);
+#endif
 	return 1;
 }
 
@@ -107,7 +118,7 @@ static int 	on_transition_10() {
 }
 
 // transition 11: quickstop 
-static int 	on_transition_11() {	//TODO
+static int 	on_transition_11() {
 	mc_interface_set_current(0.0);
 	return 1;
 }
@@ -144,7 +155,7 @@ int FsaAttemptTransition(int transition_number) {
 	if (t.prev_state == FSA_S_NO_FAULT && (fsa_state & FSA_FAULT_BIT)) return -1;	//early return for fault state
 	if (t.prev_state != fsa_state) return -1;	// early return for wrong state
 	int result = 1;
+	fsa_state = t.next_state;	// TODO: ensure right state during transition AND automatic transitions
 	if (t.on_transition_cb) result = t.on_transition_cb();	// most transitions should include a callback
-	fsa_state = t.next_state;
 	return result;
 }

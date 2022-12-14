@@ -49,4 +49,9 @@ extern const CO_OBJ_TYPE COTCURRENTCOMMAND;
 extern const CO_OBJ_TYPE COTRPMCOMMAND;
 #define CO_T_RPM_COMMAND ((CO_OBJ_TYPE*)&COTRPMCOMMAND)
 
+extern uint16_t StatusWord;	// XXX temporary workaround until proper FSA is done
+
+extern const CO_OBJ_TYPE COTSTATUSWORD;
+#define CO_T_STATUS_WORD ((CO_OBJ_TYPE*)&COTSTATUSWORD)
+
 #endif	//CANOPEN_PDS_OBJECTS_H_
