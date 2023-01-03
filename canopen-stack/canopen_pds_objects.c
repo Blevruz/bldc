@@ -31,7 +31,6 @@ CO_ERR	CONTROL_WORD_Write (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t si
 	uint16_t command = *(uint16_t*)obj->Data & CONTROL_WORD_COMMAND_MASK;
 
 	//TODO: handle ms, oms, and h here.
-	if (command == 0) return CO_ERR_NONE;
 
 	if (command & CONTROL_WORD_FAULT_RESET) {	// fault reset
 		if (fault_reset_up) {
