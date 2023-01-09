@@ -1,5 +1,5 @@
 /*
-	Copyright 2018 Benjamin Vedder	benjamin@vedder.se
+	Copyright 2016 Benjamin Vedder	benjamin@vedder.se
 
 	This file is part of the VESC firmware.
 
@@ -17,11 +17,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
     */
 
-#ifndef HW_75_300_R34_NO_LIMITS_H_
-#define HW_75_300_R34_NO_LIMITS_H_
+#ifndef HW_LITTLE_FOCER_H_
+#define HW_LITTLE_FOCER_H_
 
-#define DISABLE_HW_LIMITS
+#define LFOC_IS_V1
 
-#include "hw_75_300_r34.h"
+#include "hw_Little_FOCer_core.h"
 
-#endif /* HW_75_300_R34_NO_LIMITS_H_ */
+#endif /* HW_LITTLE_FOCER_H_ */

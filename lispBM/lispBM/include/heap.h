@@ -303,6 +303,18 @@ lbm_uint lbm_heap_size_bytes(void);
  * \return An lbm_value referring to a cons_cell or enc_sym(SYM_MERROR) in case the heap is full.
  */
 lbm_value lbm_heap_allocate_cell(lbm_type type);
+/** Allocate a list of n heap-cells.
+ * \param n The number of heap-cells to allocate.
+ * \return A list of heap-cells of Memory error if unable to allocate.
+ */
+lbm_value lbm_heap_allocate_list(unsigned int n);
+/** Allocate a list of n heap-cells and initialize the values.
+ * \pram ls The result list is passed through this ptr.
+ * \param m The length of list to allocate.
+ * \param ... The values to initialize the list with.
+ * \return True of False depending on success of allocation.
+ */
+bool lbm_heap_allocate_list_init(lbm_value *ls, unsigned int n, ...);
 /** Decode an lbm_value representing a string into a C string
  *
  * \param val Value

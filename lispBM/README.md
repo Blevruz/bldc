@@ -456,6 +456,14 @@ Send input to the VESC Remote app. Unlike the ADC and PPM apps, input can be sen
 
 Disable app output for ms milliseconds. 0 means enable now and -1 means disable forever. This can be used to override the control of apps temporarily.
 
+#### app-is-output-disabled
+
+```clj
+(app-is-output-disabled)
+```
+
+Check if app output is disabled. VESC Tool will disable app output during some detection routines, so when running a custom control script it might be useful to check this and disable the output when this value is true.
+
 #### app-pas-get-rpm
 
 ```clj
@@ -597,6 +605,27 @@ Get FOC d-axis voltage.
 ```
 
 Get FOC q-axis voltage.
+
+#### get-est-lambda
+```clj
+(get-est-lambda)
+```
+
+Get FOC estimated flux linkage in Weber. Requires that one of the observers with flux linkage tracking is used. Added in FW 6.02.
+
+#### get-est-res
+```clj
+(get-est-res)
+```
+
+Get FOC estimated motor resistance in Ohm. This value is only accurate when the RPM is low and current is high. Added in FW 6.02.
+
+#### get-est-ind
+```clj
+(get-est-ind)
+```
+
+Get FOC estimated motor inductance Henry. Only works while the first HFI is running (not 45 Deg and not Coupled HFI). Added in FW 6.02.
 
 #### get-duty
 ```clj
@@ -1019,6 +1048,27 @@ Get the base-e logarithm of x.
 
 Get the base-10 logarithm of x.
 
+#### floor
+```clj
+(floor x)
+```
+
+Round x down to the closest integer. Added in FW 6.02.
+
+#### ceil
+```clj
+(ceil x)
+```
+
+Round x up to the closest integer. Added in FW 6.02.
+
+#### round
+```clj
+(round x)
+```
+
+Round x to the closest integer. Added in FW 6.02.
+
 #### deg2rad
 ```clj
 (deg2rad x)
@@ -1412,6 +1462,22 @@ The following selection of app and motor parameters can be read and set from Lis
 'ppm-pulse-center       ; Pulse corresponding to center throttle in ms
 'ppm-ramp-time-pos      ; Positive ramping time in seconds
 'ppm-ramp-time-neg      ; Negative ramping time in seconds
+'adc-ctrl-type          ; ADC Control Type (Added in FW 6.02)
+                        ;    0:  ADC_CTRL_TYPE_NONE
+                        ;    1:  ADC_CTRL_TYPE_CURRENT
+                        ;    2:  ADC_CTRL_TYPE_CURRENT_REV_CENTER
+                        ;    3:  ADC_CTRL_TYPE_CURRENT_REV_BUTTON
+                        ;    4:  ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_ADC
+                        ;    5:  ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_CENTER
+                        ;    6:  ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_CENTER
+                        ;    7:  ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_BUTTON
+                        ;    8:  ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_ADC
+                        ;    9:  ADC_CTRL_TYPE_DUTY
+                        ;    10: ADC_CTRL_TYPE_DUTY_REV_CENTER
+                        ;    11: ADC_CTRL_TYPE_DUTY_REV_BUTTON
+                        ;    12: ADC_CTRL_TYPE_PID
+                        ;    13: ADC_CTRL_TYPE_PID_REV_CENTER
+                        ;    14: ADC_CTRL_TYPE_PID_REV_BUTTON
 ```
 
 #### conf-set
@@ -2144,7 +2210,7 @@ This event is sent when standard id CAN-frames are received.
 This event is sent when extended id CAN-frames are received.
 
 **event-data-rx**  
-This event is sent when custom app data is sent from VESC Tool.
+This event is sent when custom app data is sent from VESC Tool or other connected devices. This works using all communication ports including USB, UART and CAN-bus.
 
 **event-shutdown**  
 This event is sent when the VESC is about to shut down. Note that this event currently only works on hardware with a power switch. If that is not the case you could try to, for example, monitor the input voltage and simulate this event when it drops below a set level.
