@@ -52,7 +52,7 @@ OD_DYN AppOD = {
 	0
 };
 
-static uint8_t set_od_root (CO_OBJ* new_root) {	//function to synchronise the co_node_spec and AppOD root values
+static int set_od_root (CO_OBJ* new_root) {	//function to synchronise the co_node_spec and AppOD root values
 	// root can only be within designated NVM sector (by default sector 8)
 	if ((uint32_t)new_root < NVM_CHOS_ADDRESS || (uint32_t)new_root - NVM_CHOS_ADDRESS >= NVM_CHOS_SIZE)
 		return -1;
@@ -106,7 +106,7 @@ static int16_t ObjCmp(CO_OBJ *a, CO_OBJ *b)
 CO_OBJ  t_buffer[TEMP_BUFFER_SIZE];
 uint32_t	t_used = 0;
 
-void	ODEraseNvm() {
+void	ODEraseNvm(void) {
 	/*
 		FLASH_Unlock();
 		FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
@@ -138,7 +138,7 @@ void	ODEraseNvm() {
 		timeout_configure_IWDT_slowest();
 	}
 
-	uint16_t res = FLASH_EraseSector(8 << 3, (uint8_t)((PWR->CSR & PWR_CSR_PVDO) ? VoltageRange_2 : VoltageRange_3));
+	FLASH_EraseSector(8 << 3, (uint8_t)((PWR->CSR & PWR_CSR_PVDO) ? VoltageRange_2 : VoltageRange_3));
 			//Note the `8 << 3`; this function doesnt bitshift the sector number
 
 	FLASH_Lock();
@@ -172,7 +172,7 @@ int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write) {
 #else
 	(void)driver;
 	(void)self;
-	for (volatile int i = 0; i < t_used; i++) {	//volatile keyword to keep this loop in spite of optimisation
+	for (volatile unsigned int i = 0; i < t_used; i++) {	//volatile keyword to keep this loop in spite of optimisation
 		if ((t_buffer[i].Key & ~0xFF) == (to_write->Key & ~0xFF)) {	// If other object with same Index&Subindex:
 			t_buffer[i] = *to_write;			// Replace it with more recent obj
 			return 3;
@@ -204,16 +204,16 @@ void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self) {
 	if (((uint32_t)self->Root - NVM_CHOS_ADDRESS) + self->Used*size + t_used*size < NVM_CHOS_SIZE &&
 			self->Used != 0) {
 		uint32_t end_dw = OD_END_DW;	// If so: change dictionary root
-		const unsigned int size = sizeof(uint32_t);
+		const unsigned int size_u32 = sizeof(uint32_t);
 
-		driver->Nvm->Write((self->Used)*3*size, (uint8_t*)&end_dw, size);
-		set_od_root((uint32_t)self->Root + (self->Used*3 + 1)*size);
+		driver->Nvm->Write((self->Used)*3*size_u32, (uint8_t*)&end_dw, size_u32);
+		set_od_root((CO_OBJ*)((uint32_t)self->Root + (self->Used*3 + 1)*size_u32));
 
 		self->Used = 0;
 	} else {
 		// If not: wipe and write
 		ODEraseNvm();
-		set_od_root(NVM_CHOS_ADDRESS);
+		set_od_root((CO_OBJ*)NVM_CHOS_ADDRESS);
 	}
 //	ChOSNvmDriver_offset = (uint32_t)self->Root - NVM_CHOS_ADDRESS;
 	uint32_t used = 0;
@@ -255,7 +255,7 @@ void ODNvmToBuffer(CO_IF_DRV* driver, OD_DYN* self) {
 #endif
 }
 
-void ODClearBuffer() {
+void ODClearBuffer(void) {
 #if OD == STATIC
 	return;
 #else
@@ -289,7 +289,7 @@ int ODAddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA dat
 
     if ((key == 0) ||
         (self->Used >= self->Length)) {
-        return;
+        return -1;
     }
 
     //CO_OBJ *od = self->Root;
@@ -336,7 +336,7 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 
     int size = sizeof(uint32_t);
     int matches = 0;
-    int odindex = 0;
+    unsigned int odindex = 0;
     int odoffset = 0;
     while (matches < ODLIST_SIZE && odindex < OD_SIZE) {
 	uint32_t buffer;
@@ -361,7 +361,7 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 
     if (matches != ODLIST_SIZE) {
 
-   	 if (set_od_root((CO_OBJ*)((uint32_t)self->Root + odoffset*sizeof(CO_OBJ*))) == -1)
+   	 if (set_od_root((CO_OBJ*)((uint32_t)self->Root + odoffset*sizeof(CO_OBJ*))) < 0)
    	         for(;;);	//for ease of debugging ( XXX do something cleaner)
 
    	 Obj1001_00_08 = 0;
@@ -414,7 +414,7 @@ void co_vt_update(void *p) {
 
 }
 
-int	canopen_driver_init() {
+int	canopen_driver_init(void) {
 
 	co_node_spec.NodeId = app_get_configuration()->controller_id;
 #if OD == STATIC
@@ -453,13 +453,14 @@ bool canopen_sid_callback(uint32_t id, uint8_t *data, uint8_t len) {
 		write_frame->len = len;
 		memcpy(write_frame->data, data, write_frame->len);
 
-		can_ring_buffer.wp = (++can_ring_buffer.wp)%CAN_RINGBUFFER_SIZE;
+		can_ring_buffer.wp = (can_ring_buffer.wp + 1)%CAN_RINGBUFFER_SIZE;
 	}
 	//calls CONodeProcess to call its CAN driver to process the frame
 	CONodeProcess(&co_node);	//TODO: put in args
+	return 1;
 	
 }
 
 static uint8_t _ready = 0;
-uint8_t get_canopen_ready() {return _ready;}
+uint8_t get_canopen_ready(void) {return _ready;}
 void set_canopen_ready(uint8_t ready) {_ready = ready;}

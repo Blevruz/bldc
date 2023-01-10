@@ -155,7 +155,7 @@ void RPM_TPdo_Callback(void* arg) {
 #endif
 }
 
-void update_od() {
+void update_od(void) {
 
 	ODNvmToBuffer(co_node_spec.Drv, &AppOD);
 	
@@ -434,8 +434,6 @@ static THD_FUNCTION(cot_thread, arg) {
 			return;
 		}
 
-		//update_od();
-
 		// Run your logic here. A lot of functionality is available in mc_interface.h.
 		chThdSleepMilliseconds(10);
 	}
@@ -477,6 +475,8 @@ static void terminal_set_node_id(int argc, const char **argv) {
 
 // Callback function to update the object dictionary
 static void terminal_update_od(int argc, const char **argv) {
+	(void)argc;
+	(void)argv;
 	commands_printf("Starting OD rewrite, may take some time... ");
 
 	update_od();

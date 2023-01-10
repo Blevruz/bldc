@@ -102,6 +102,7 @@ CO_ERR   DUTY_COMMAND_Read (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t s
 }
 CO_ERR   DUTY_COMMAND_Write(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 	(void)node;
+	(void)size;
 	
 	if (((ControlWord & CONTROL_WORD_COMMAND_MASK)& ~0x9) == 0x2) return CO_ERR_NONE;	//kludge for control word-rpm command interaction
 	//format: from 16 bit signed fixed point to float
@@ -137,6 +138,7 @@ CO_ERR   CURRENT_COMMAND_Read (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_
 }
 CO_ERR   CURRENT_COMMAND_Write(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 	(void)node;
+	(void)size;
 	
 	if (((ControlWord & CONTROL_WORD_COMMAND_MASK)& ~0x9) == 0x2) return CO_ERR_NONE;	//kludge for control word-rpm command interaction
 	//format: from 16 bit signed fixed point to float
@@ -174,6 +176,8 @@ CO_ERR   RPM_COMMAND_Read (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t si
 }
 CO_ERR   RPM_COMMAND_Write(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
 	(void)node;
+	(void)size;
+
 	if (mc_enc_ratio == 0) {
 		mc_configuration mc_config;
 		conf_general_read_mc_configuration(&mc_config, false);
@@ -181,8 +185,7 @@ CO_ERR   RPM_COMMAND_Write(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t si
 	}
 
 	if (!FSA_CHECK_MOTOR_ON)	return CO_ERR_NONE;
-	//if (((ControlWord & CONTROL_WORD_COMMAND_MASK)& ~0x9) == 0x2) return CO_ERR_NONE;	//kludge for control word-rpm command interaction
-												//TODO: replace this with state machine check
+
 	int32_t o_data = *(int16_t*)(buffer) * mc_enc_ratio;
 	mc_interface_set_pid_speed((int32_t)o_data);
 	timeout_reset();
@@ -225,6 +228,7 @@ uint32_t STATUS_WORD_Size(CO_OBJ *obj, CO_NODE *node, uint32_t width) {
 }
 
 CO_ERR	STATUS_WORD_Read (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size) {
+	(void)size;
 	uint16_t new_state = *(uint16_t*)obj->Data;
 	switch(fsa_state) {
 		case FSA_S_NOT_READY_TO_SWITCH_ON:
@@ -273,13 +277,13 @@ CO_ERR	STATUS_WORD_Read (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size
 
 	//bit 10: TODO compare actual speed and target speed, within a certain margin
 	int16_t target_speed = 0;
-	CODictRdWord(&node->Dict, CO_DEV(0x6042, 1), &target_speed);
+	CODictRdWord(&node->Dict, CO_DEV(0x6042, 1), (uint16_t*)&target_speed);
 	
 	if (mc_enc_ratio) {
 		target_speed /= mc_enc_ratio;	//adjusting for ERPM to RPM transition
 	}
 	int16_t measured_speed = 0;
-	CODictRdWord(&node->Dict, CO_DEV(0x6044, 0), &measured_speed);
+	CODictRdWord(&node->Dict, CO_DEV(0x6044, 0), (uint16_t*)&measured_speed);
 	int16_t margin = 10;	//acceptable percentage deviation
 
 	if (measured_speed*100 >= target_speed*(100-margin)  && measured_speed*100 <= target_speed*(100+margin)) {

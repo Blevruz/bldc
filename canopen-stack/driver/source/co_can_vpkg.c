@@ -111,7 +111,7 @@ static int16_t DrvCanRead (CO_IF_FRM *frm)
     		frm->Identifier = read_frame.id;
     		frm->DLC = read_frame.len;
     		memcpy(frm->Data, read_frame.data, frm->DLC);
-		can_ring_buffer.rp = (++can_ring_buffer.rp)%CAN_RINGBUFFER_SIZE;
+		can_ring_buffer.rp = (can_ring_buffer.rp + 1)%CAN_RINGBUFFER_SIZE;
 		return 1;
 		}
 	case MSG_TIMEOUT:

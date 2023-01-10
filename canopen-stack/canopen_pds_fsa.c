@@ -2,23 +2,23 @@
 
 #define CO_FSA_AUTO_TRANSITION	1
 
-static int	on_transition_0	();
-static int	on_transition_1	();
-static int	on_transition_2	();
-static int	on_transition_3	();
-static int	on_transition_4	();
-static int	on_transition_5	();
-static int	on_transition_6	();
-static int	on_transition_7	();
-static int	on_transition_8	();
-static int	on_transition_9	();
-static int	on_transition_10();
-static int	on_transition_11();
-static int	on_transition_12();
-static int	on_transition_13();
-static int	on_transition_14();
-static int	on_transition_15();
-static int	on_transition_16();
+static int	on_transition_0	(void);
+static int	on_transition_1	(void);
+static int	on_transition_2	(void);
+static int	on_transition_3	(void);
+static int	on_transition_4	(void);
+static int	on_transition_5	(void);
+static int	on_transition_6	(void);
+static int	on_transition_7	(void);
+static int	on_transition_8	(void);
+static int	on_transition_9	(void);
+static int	on_transition_10(void);
+static int	on_transition_11(void);
+static int	on_transition_12(void);
+static int	on_transition_13(void);
+static int	on_transition_14(void);
+static int	on_transition_15(void);
+static int	on_transition_16(void);
 
 int fsa_state = 0;
 int motor_control = 0;

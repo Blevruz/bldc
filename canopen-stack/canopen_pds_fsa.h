@@ -26,7 +26,7 @@ extern int fsa_state;
 typedef struct {
 	int prev_state;
 	int next_state;
-	int (*on_transition_cb)();
+	int (*on_transition_cb)(void);
 } transition_t;
 
 #define FSA_NB_TRANSITIONS	17

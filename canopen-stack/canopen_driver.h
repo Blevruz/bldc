@@ -7,8 +7,14 @@
 #include "co_nvm_chos.h"
 #include "co_timer_swcycle.h"
 #include "app.h"
+#include "mc_interface.h"
+#include "timeout.h"
+#include "utils_sys.h"
 #include "nrf_driver.h"
+
 #include <stdint.h>
+#include <string.h>
+
 typedef struct {
 	uint32_t id;
 	uint8_t data[8];
@@ -38,7 +44,7 @@ int	canopen_driver_init(void);
 
 void co_vt_update(void *p);
 
-void ODEraseNvm();
+void ODEraseNvm(void);
 
 int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write);
 
