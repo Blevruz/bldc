@@ -14,10 +14,9 @@ static float mc_enc_ratio = 0;
  *	Bit 8:		h	halt
  *	Bit 9:		oms	operation mode specific
  *	Bit 10:		r	reserved
- *	Bit 11 - 16:	ms	manufacturer specific
+ *	Bit 11 - 15:	ms	manufacturer specific
  *	
  *	See Table 27 from CiA 402 for behaviours depending on value.
- *	NOTE: would be greatly facilitated by a CiA 402-compliant Finite State Automaton
  */
 uint16_t ControlWord = 0;	// XXX temporary workaround until proper FSA is done
 uint32_t CONTROL_WORD_Size(CO_OBJ *obj, CO_NODE *node, uint32_t width) {
@@ -104,7 +103,8 @@ CO_ERR   DUTY_COMMAND_Write(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t s
 	(void)node;
 	(void)size;
 	
-	if (((ControlWord & CONTROL_WORD_COMMAND_MASK)& ~0x9) == 0x2) return CO_ERR_NONE;	//kludge for control word-rpm command interaction
+	if (!FSA_CHECK_MOTOR_ON)	return CO_ERR_NONE;
+
 	//format: from 16 bit signed fixed point to float
 	float o_data = (float)(*(int16_t*)(buffer)) / 0x7FFF;
 	mc_interface_set_duty(o_data);
@@ -140,7 +140,8 @@ CO_ERR   CURRENT_COMMAND_Write(CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_
 	(void)node;
 	(void)size;
 	
-	if (((ControlWord & CONTROL_WORD_COMMAND_MASK)& ~0x9) == 0x2) return CO_ERR_NONE;	//kludge for control word-rpm command interaction
+	if (!FSA_CHECK_MOTOR_ON)	return CO_ERR_NONE;
+
 	//format: from 16 bit signed fixed point to float
 	float o_data = (float)(*(int16_t*)(buffer)) / 0xFF;
 	mc_interface_set_current(o_data);
@@ -275,7 +276,8 @@ CO_ERR	STATUS_WORD_Read (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t size
 	//bit 9: TODO implement actual way to toggle controlword processing
 	new_state |= 1<<9;
 
-	//bit 10: TODO compare actual speed and target speed, within a certain margin
+	//bit 10: compares actual speed and target speed, within a certain margin
+	//TODO: get that margin from somewhere in the OD
 	int16_t target_speed = 0;
 	CODictRdWord(&node->Dict, CO_DEV(0x6042, 1), (uint16_t*)&target_speed);
 	

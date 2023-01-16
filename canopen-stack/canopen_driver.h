@@ -4,13 +4,15 @@
 #include "conf_general.h"
 #include "co_core.h"
 #include "co_can_vpkg.h"
-#include "co_nvm_chos.h"
+#include "co_nvm_vpkg.h"
 #include "co_timer_swcycle.h"
 #include "app.h"
 #include "mc_interface.h"
 #include "timeout.h"
 #include "utils_sys.h"
 #include "nrf_driver.h"
+#include "flash_helper.h"
+#include "canopen_od_flash.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -33,9 +35,9 @@ extern co_ring_buffer can_ring_buffer;
 extern CO_NODE_SPEC co_node_spec;
 extern CO_NODE co_node;
 typedef struct {
-  CO_OBJ    *Root;
-  uint32_t   Length;
-  uint32_t   Used;
+  uint32_t	Root;
+  uint32_t	Length;
+  uint32_t	Used;
 } OD_DYN;
 extern OD_DYN AppOD;
 
@@ -46,7 +48,7 @@ void co_vt_update(void *p);
 
 void ODEraseNvm(void);
 
-int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write);
+int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write);	//handled by canopen_od_flash
 
 void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self);
 

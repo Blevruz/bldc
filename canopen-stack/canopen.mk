@@ -1,4 +1,5 @@
 CANOPENSRC =	canopen-stack/canopen_driver.c \
+		canopen-stack/canopen_od_flash.c \
 		canopen-stack/canopen_pds_fsa.c \
 		canopen-stack/canopen_pds_objects.c \
 		canopen-stack/canopen/source/callbacks.c \
@@ -23,7 +24,7 @@ CANOPENSRC =	canopen-stack/canopen_driver.c \
 		canopen-stack/driver/source/ \
 			canopen-stack/driver/source/co_can_vpkg.c \
 			canopen-stack/driver/source/co_timer_chos.c \
-			canopen-stack/driver/source/co_nvm_chos.c \
+			canopen-stack/driver/source/co_nvm_vpkg.c \
 			canopen-stack/driver/source/co_timer_swcycle.c
 
 CANOPENINC = canopen-stack \

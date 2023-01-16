@@ -12,7 +12,7 @@ CO_NODE co_node;
 struct CO_IF_DRV_T AppDriver = {
     &VescPkgCanDriver,
     &SwCycleTimerDriver,
-    &ChOSNvmDriver
+    &VescPkgNvmDriver
 };
  
 /* Specify the EMCY-IDs for the application */
@@ -47,19 +47,19 @@ static uint8_t  Obj1001_00_08 = 0;
 
 #define APP_OBJ_N	256u
 OD_DYN AppOD = {
-	(CO_OBJ*)NVM_CHOS_ADDRESS,
+	0,
 	APP_OBJ_N,
 	0
 };
 
-static int set_od_root (CO_OBJ* new_root) {	//function to synchronise the co_node_spec and AppOD root values
+static int set_od_root (uint32_t new_root) {	//function to synchronise the co_node_spec and AppOD root values
 	// root can only be within designated NVM sector (by default sector 8)
-	if ((uint32_t)new_root < NVM_CHOS_ADDRESS || (uint32_t)new_root - NVM_CHOS_ADDRESS >= NVM_CHOS_SIZE)
+	if (new_root > 0x40000)
 		return -1;
-	ChOSNvmDriver_offset = (uint32_t)new_root - NVM_CHOS_ADDRESS;
+	VescPkgNvmDriver_offset = new_root;
 	AppOD.Root = new_root;
-	co_node_spec.Dict = new_root;
-	co_node.Dict.Root = new_root;	//TODO: check which ones can safely be removed (redundancy)
+	co_node_spec.Dict = new_root + OD_NVM_START;
+	co_node.Dict.Root = new_root + OD_NVM_START;	//TODO: check which ones can safely be removed (redundancy)
 	return 1;
 }
 
@@ -77,76 +77,14 @@ static void ObjCpy(CO_OBJ *a, CO_OBJ *b)
   a->Data = b->Data;
 }
 
-/*
-static void ObjSwap(CO_OBJ *a, CO_OBJ *b)
-{
-  CO_OBJ x;
-
-  ObjCpy(&x,  a);
-  ObjCpy( a,  b);
-  ObjCpy( b, &x);
-}
-
-static int16_t ObjCmp(CO_OBJ *a, CO_OBJ *b)
-{
-  int16_t result = 1;
-
-  if (CO_GET_DEV(a->Key) == CO_GET_DEV(b->Key)) {
-    result = 0;
-
-  } else if (CO_GET_DEV(a->Key) < CO_GET_DEV(b->Key)) {
-    result = -1;
-  }
-
-  return (result);
-}
-*/
 
 #define TEMP_BUFFER_SIZE 512
 CO_OBJ  t_buffer[TEMP_BUFFER_SIZE];
 uint32_t	t_used = 0;
 
 void	ODEraseNvm(void) {
-	/*
-		FLASH_Unlock();
-		FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
-				FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
-		FLASH_EraseSector(8 << 3, (uint8_t)((PWR->CSR & PWR_CSR_PVDO) ? VoltageRange_2 : VoltageRange_3));
-			//Note the `8 << 3`; this function doesnt bitshift the sector number
-		FLASH_Lock();
-	*/
-	FLASH_Unlock();
-	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
-			FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
-	
-	if (get_canopen_ready()) {
-
-		if (nrf_driver_ext_nrf_running()) {
-			nrf_driver_pause(10000);
-		}
-
-		mc_interface_unlock();
-	
-		mc_interface_ignore_input_both(10000);
-		mc_interface_release_motor_override_both();
-
-		mc_interface_lock();
-	
-		while (!mc_interface_wait_for_motor_release_both(3));
-	
-		utils_sys_lock_cnt();
-		timeout_configure_IWDT_slowest();
-	}
-
-	FLASH_EraseSector(8 << 3, (uint8_t)((PWR->CSR & PWR_CSR_PVDO) ? VoltageRange_2 : VoltageRange_3));
-			//Note the `8 << 3`; this function doesnt bitshift the sector number
-
-	FLASH_Lock();
-	if (get_canopen_ready()) {
-		timeout_configure_IWDT();
-		mc_interface_ignore_input_both(100);
-		utils_sys_unlock_cnt();
-	}
+	flash_helper_wipe_nvm();
+	set_od_root(0);
 }
 
 
@@ -201,7 +139,7 @@ void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self) {
 #else	
 	// Can we append?
 	const unsigned int size = sizeof(CO_OBJ);
-	if (((uint32_t)self->Root - NVM_CHOS_ADDRESS) + self->Used*size + t_used*size < NVM_CHOS_SIZE &&
+	if (self->Root + self->Used*size + t_used*size < 0x4000 &&
 			self->Used != 0) {
 		uint32_t end_dw = OD_END_DW;	// If so: change dictionary root
 		const unsigned int size_u32 = sizeof(uint32_t);
@@ -213,9 +151,8 @@ void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self) {
 	} else {
 		// If not: wipe and write
 		ODEraseNvm();
-		set_od_root((CO_OBJ*)NVM_CHOS_ADDRESS);
+		set_od_root(0);
 	}
-//	ChOSNvmDriver_offset = (uint32_t)self->Root - NVM_CHOS_ADDRESS;
 	uint32_t used = 0;
 	uint32_t max = 0xFFFFFFFF;
 	uint32_t min = 0;
@@ -352,7 +289,7 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 		matches = 0;
 		continue;
 	}
-	if (buffer >= 0xBFFFFFFF || (odindex + odoffset) >= NVM_CHOS_SIZE) break;	//we've reached the end of NVM (0xBFFF is the max index)
+	if (buffer >= 0xBFFFFFFF || (odindex + odoffset) >= 0x4000) break;	//we've reached the end of NVM (0xBFFF is the max index)
 	odindex += 3;	//assume it must have been a valid entry and move on
     }
     //self->Used += odindex/3;
@@ -361,8 +298,9 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 
     if (matches != ODLIST_SIZE) {
 
-   	 if (set_od_root((CO_OBJ*)((uint32_t)self->Root + odoffset*sizeof(CO_OBJ*))) < 0)
-   	         for(;;);	//for ease of debugging ( XXX do something cleaner)
+	if (set_od_root(odoffset*sizeof(CO_OBJ*)) < 0) {
+			return -1;
+	}
 
    	 Obj1001_00_08 = 0;
 
@@ -393,7 +331,7 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 CO_NODE_SPEC co_node_spec = {
     0x01,					/* default Node-Id (arbitrary)		*/
     APPCONF_CAN_BAUD_RATE,   			/* default Baudrate			*/
-    (CO_OBJ*)NVM_CHOS_ADDRESS,			/* pointer to object dictionary  	*/
+    (CO_OBJ*)OD_NVM_START,			/* pointer to object dictionary  	*/ //used during node init
     APP_OBJ_N,        				/* object dictionary max length  	*/
     &AppEmcyTbl[0],				/* EMCY code & register bit table	*/
     &AppTmrMem[0],				/* pointer to timer memory blocks	*/
@@ -425,9 +363,6 @@ int	canopen_driver_init(void) {
 		//Note the `8 << 3`; this function doesnt bitshift the sector number
 	FLASH_Lock();
 #endif
-	/* Clear all entries in object dictionary */
-	//ODInit(&AppOD, (CO_OBJ*)NVM_CHOS_ADDRESS, APP_OBJ_N);
-	
 	/* Setup the object dictionary during runtime */
 	ODCreateDict(&AppOD, &AppDriver);
 	
