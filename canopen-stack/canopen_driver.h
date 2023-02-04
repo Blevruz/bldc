@@ -17,6 +17,15 @@
 #include <stdint.h>
 #include <string.h>
 
+//TODO: move all canopen-related data structure to this, to aid movement to pkg
+typedef struct {
+	OD_BUFF obj_buff;
+	CO_NODE co_node;
+} co_data;
+
+extern co_data *d;	//NOTE: not possible in pkg. need to figure out a way to get the data
+			// to callbacks, e.g. in canopen_pds_objects
+
 typedef struct {
 	uint32_t id;
 	uint8_t data[8];
@@ -42,23 +51,22 @@ typedef struct {
 extern OD_DYN AppOD;
 
 
-int	canopen_driver_init(void);
+int	canopen_driver_init(co_data* d);
 
 void co_vt_update(void *p);
 
-void ODEraseNvm(void);
+#if 0
+void ODEraseNvm(void);								//handled by canopen_od_flash
 
 int8_t ODEntryToBuffer (CO_IF_DRV* driver, OD_DYN* self, CO_OBJ* to_write);	//handled by canopen_od_flash
 
-void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self);
+void ODBufferToNvm(CO_IF_DRV* driver, OD_DYN* self);				//handled by canopen_od_flash
 
-void ODNvmToBuffer(CO_IF_DRV* driver, OD_DYN* self);
+void ODNvmToBuffer(CO_IF_DRV* driver, OD_DYN* self);				//handled by canopen_od_flash
 
-void ODClearBuffer(void);
-
-void ODInit (OD_DYN *self, CO_OBJ *root, uint32_t length);
-
+void ODClearBuffer(void);							//handled by canopen_od_flash
 int ODAddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA data, CO_IF_DRV* driver);
+#endif
 
 bool canopen_sid_callback(uint32_t id, uint8_t *data, uint8_t len);
 

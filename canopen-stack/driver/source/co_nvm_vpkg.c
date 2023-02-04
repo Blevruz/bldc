@@ -20,6 +20,7 @@
 
 #include "co_nvm_vpkg.h"
 #include "flash_helper.h"
+#include "canopen_od_flash.h"
 //#include "vesc_c_if.h"
 
 /******************************************************************************
@@ -58,12 +59,26 @@ static void DrvNvmInit(void)
 
 static uint32_t DrvNvmRead(uint32_t start, uint8_t *buffer, uint32_t size)
 {
-        return flash_helper_read_nvm(buffer, size, start + VescPkgNvmDriver_offset) ? size : 0;
+	//step 1: find beginning of OD
+	int index = 0;
+	int offset = 0;
+	if (ODf_GetActiveOD	(&index, &offset) < 0)
+		return -1;	//error somewhere
+	
+	//step 2: read from appropriate addr
+        return flash_helper_read_nvm(buffer, size, offset + start) ? size : 0;
 	//return VESC_IF->read_nvm(buffer, size, start + VescPkgNvmDriver_offset) ? size : 0;
 }
 
 static uint32_t DrvNvmWrite(uint32_t base, uint8_t *data, uint32_t len)
 {
-	return flash_helper_write_nvm(data, len, base + VescPkgNvmDriver_offset) ? len : 0;
+	//step 1: find beginning of OD
+	int index = 0;
+	int offset = 0;
+	if (ODf_GetActiveOD	(&index, &offset) < 0)
+		return -1;	//error somewhere
+	
+	//step 2: write to appropriate addr
+	return flash_helper_write_nvm(data, len, offset + base) ? len : 0;
 	//return VESC_IF->write_nvm(data, len, base + VescPkgNvmDriver_offset) ? len : 0;
 }

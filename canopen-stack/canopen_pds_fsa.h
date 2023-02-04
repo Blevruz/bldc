@@ -26,13 +26,23 @@ extern int fsa_state;
 typedef struct {
 	int prev_state;
 	int next_state;
-	int (*on_transition_cb)(void);
+	int (*on_transition_cb)(co_data*);
 } transition_t;
 
 #define FSA_NB_TRANSITIONS	17
 extern const transition_t fsa_transition_list[FSA_NB_TRANSITIONS];
 
-int FsaAttemptTransition(int transition_number);	//handles state transitions and associated function calls
+/**
+ * @brief	Handles transitioning for the Power Drive System FSA
+ *
+ * @param transition_number
+ * int specifying the number of the transition, which should be matched
+ * in the fsa transition list. Refer to part 8 in CiA 402 2!
+ *
+ * @param d
+ * Pointer to shared data.
+ */
+int FsaAttemptTransition(int transition_number, co_data* d);	//handles state transitions and associated function calls
 
 extern int motor_control;
 

@@ -37,39 +37,39 @@ CO_ERR	CONTROL_WORD_Write (CO_OBJ *obj, CO_NODE *node, void *buffer, uint32_t si
 		}
 		fault_reset_up = 1;
 		//TODO: actually reset faults
-		return FsaAttemptTransition(15) >= 0 ? CO_ERR_NONE : -1;
+		return FsaAttemptTransition(15, d) >= 0 ? CO_ERR_NONE : -1;
 	}	// we now know that bit 7 is low
 	fault_reset_up = 0;
 	if ((command & CONTROL_WORD_DISABLE_VOLTAGE_N) == 0) {	// disable voltage
 	        //TODO: disable voltage
-		if (FsaAttemptTransition( 9) > 0)	return CO_ERR_NONE;
-	        if (FsaAttemptTransition( 7) > 0)	return CO_ERR_NONE;
-	        if (FsaAttemptTransition(12) > 0)	return CO_ERR_NONE;
+		if (FsaAttemptTransition( 9, d) > 0)	return CO_ERR_NONE;
+	        if (FsaAttemptTransition( 7, d) > 0)	return CO_ERR_NONE;
+	        if (FsaAttemptTransition(12, d) > 0)	return CO_ERR_NONE;
 		return -1;	//TODO: find better error value
 	}       // we now know that bit 1 is high
 	if ((command & CONTROL_WORD_QUICK_STOP_N) == 0) {	// quick stop
 	        //TODO: implement more nuanced setup described in 402 part 2 8.4.1
 	        //mc_interface_set_current_rel(0.0);
-		if (FsaAttemptTransition(11) > 0)	return CO_ERR_NONE;
-	        if (FsaAttemptTransition( 7) > 0)	return CO_ERR_NONE;
+		if (FsaAttemptTransition(11, d) > 0)	return CO_ERR_NONE;
+	        if (FsaAttemptTransition( 7, d) > 0)	return CO_ERR_NONE;
 		return -1;	//TODO: find better error value
 	}       // we now know that bit 2 is high
 	if ((command & CONTROL_WORD_SHUTDOWN_N) == 0) {		// shutdown
-		if (FsaAttemptTransition( 2) > 0)	return CO_ERR_NONE;
-		if (FsaAttemptTransition( 6) > 0)	return CO_ERR_NONE;
-		if (FsaAttemptTransition( 8) > 0)	return CO_ERR_NONE;
+		if (FsaAttemptTransition( 2, d) > 0)	return CO_ERR_NONE;
+		if (FsaAttemptTransition( 6, d) > 0)	return CO_ERR_NONE;
+		if (FsaAttemptTransition( 8, d) > 0)	return CO_ERR_NONE;
 		return -1;	//TODO: find better error value
 	}       // we now know that bit 0 is high
 	if ((command & CONTROL_WORD_SWITCH_ON_N) == 0) {	// switch on / disable op
-		if (FsaAttemptTransition( 3) > 0)	return CO_ERR_NONE;
+		if (FsaAttemptTransition( 3, d) > 0)	return CO_ERR_NONE;
 		return -1;	//TODO: find better error value
 	}	//we now know that bit 3 is high
 								// switch on + enable op
 	//TODO: implement switch on + enable operation OR enable operation depending on FSA state
 	
-	if (FsaAttemptTransition( 4) > 0)	return CO_ERR_NONE;
-	if (FsaAttemptTransition(16) > 0)	return CO_ERR_NONE;
-	if (FsaAttemptTransition( 3) > 0)	return CO_ERR_NONE;
+	if (FsaAttemptTransition( 4, d) > 0)	return CO_ERR_NONE;
+	if (FsaAttemptTransition(16, d) > 0)	return CO_ERR_NONE;
+	if (FsaAttemptTransition( 3, d) > 0)	return CO_ERR_NONE;
 
 	return -1;
 }

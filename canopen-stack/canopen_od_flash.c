@@ -68,7 +68,7 @@ int ODf_CheckFormatting() {
 			}
 			if (read != OD_NVM_END_DW) {
 				done = true;
-				continue;
+	continue;
 				//return -4;	// not formatted: lacking END_DW
 			}
 		}
@@ -102,6 +102,15 @@ int ODf_EntryToBuffer	(CO_OBJ* to_write, OD_BUFF* obj_buff) {
 * see function definition
 */
 
+int ODf_ClearBuffer	(OD_BUFF* obj_buff) {
+	obj_buff->used = 0;
+	return 1;
+}
+
+/*
+* see function definition
+*/
+
 int ODf_BufferToNvm	(CO_IF_DRV* driver, OD_BUFF* obj_buff) {
 	// CHECKING
 	// Can we append?
@@ -124,14 +133,44 @@ int ODf_BufferToNvm	(CO_IF_DRV* driver, OD_BUFF* obj_buff) {
 	if (!flash_helper_write_nvm((uint8_t*)&(obj_buff->used), 1, index)) {
 		return -2;
 	}
+	index = OD_NVM_END_DW;
+	flash_helper_write_nvm(&index, 4, offset);
+	offset += 4;
 	// step 2: write entries to NVM OD 
+	/*
 	for (int i = 0; i < obj_buff->used; i++) {
 		if (!flash_helper_write_nvm((uint8_t*)&(obj_buff->buffer[i]),
-				12,
+				OD_ENTRY_SIZE,
 				offset + i*OD_ENTRY_SIZE)) {
 			return -3;
 		}
 	}
+	*/
+
+	uint32_t used = 0;
+	uint32_t max = 0xFFFFFFFF;
+	uint32_t min = 0;
+	uint32_t ival; int bi = -1;
+	while (obj_buff->used > used) {
+		for (unsigned int i = 0; i < obj_buff->used; i++) {	//O(n^2) but rare
+			ival = CO_GET_DEV(obj_buff->buffer[i].Key);
+			if (ival > min && ival < max) {
+				max = ival;
+				bi = i;
+			}
+		}
+		if (bi == -1) break;	// something is wrong
+		min = CO_GET_DEV(obj_buff->buffer[bi].Key);
+		max = 0xFFFFFFFF;
+		if (!flash_helper_write_nvm((uint8_t*)&(obj_buff->buffer[bi]),
+				OD_ENTRY_SIZE,
+				offset + used*OD_ENTRY_SIZE)) {
+			return -3;
+		}
+		used++;
+		//driver->Nvm->Write((used++)*size, (uint8_t*)&(obj_buff->buffer[bi]), size);
+	}
+
 	return 1;
 }
 
@@ -145,7 +184,20 @@ int ODf_NvmToBuffer	(CO_IF_DRV* driver, OD_BUFF* obj_buff) {
 	ODf_GetActiveOD(&index, &offset);
 	uint8_t size = 0;
 	flash_helper_read_nvm((uint8_t*)&size, 1, index);
-	return flash_helper_read_nvm((uint8_t*)obj_buff->buffer, size*OD_ENTRY_SIZE, offset);
+	/*
+	return flash_helper_read_nvm((uint8_t*)obj_buff->buffer + obj_buff->used*OD_ENTRY_SIZE,
+			size*OD_ENTRY_SIZE, 
+			offset);
+			*/
+	CO_OBJ temp;
+	for (int i = 0; i < size; i++) {
+		if (flash_helper_read_nvm(&temp, OD_ENTRY_SIZE, offset + i*OD_ENTRY_SIZE) < 0)
+			return -1;
+		if (temp.Key >= 0xBFFFFFFF)
+			break;
+		ODf_EntryToBuffer( &temp, obj_buff);
+	}
+	return 1;
 }
 
 /*
@@ -160,20 +212,40 @@ int ODf_EraseNvm	(void) {
 * see function definition
 */
 
+int ODf_AddUpdate	(uint32_t key, const CO_OBJ_TYPE *type, CO_DATA data, OD_BUFF* obj_buff) {
+	CO_OBJ	temp;
+	
+	if ((key == 0) || (obj_buff->used >= OD_MAX_SIZE)) {
+		return -1;
+	}
+
+	temp.Key = key;
+	temp.Type = type;
+	temp.Data = data;
+	
+	return ODf_EntryToBuffer(&temp, obj_buff);
+	
+}
+
+
+/*
+* see function definition
+*/
+
 int ODf_GetActiveOD	(int* index, int* offset) {
 	uint8_t read = 0;
 	int t_index = 0;
-	int t_offset = OD_NVM_MAX_NB + 4;
-	for (int i = 0; i < OD_NVM_MAX_NB; i++) {
-		t_offset += read*12 + 4;
-		t_index = i;
-		if (!flash_helper_read_nvm((uint8_t*)&read, i, 1)) {
+	int t_offset = 0;
+	for (; t_index < OD_NVM_MAX_NB; t_index++) {
+		if (!flash_helper_read_nvm((uint8_t*)&read, 1, t_index)) {
 			return -1;
 		}
 		if (read == 0xFF) {
 			break;
 		}
+		t_offset += read;
 	}
+	t_offset = (t_offset-1)*OD_ENTRY_SIZE + 4*t_index + OD_NVM_MAX_NB;
 	*offset = t_offset;
 	*index = t_index;
 	return 1;

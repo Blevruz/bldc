@@ -2,23 +2,23 @@
 
 #define CO_FSA_AUTO_TRANSITION	1
 
-static int	on_transition_0	(void);
-static int	on_transition_1	(void);
-static int	on_transition_2	(void);
-static int	on_transition_3	(void);
-static int	on_transition_4	(void);
-static int	on_transition_5	(void);
-static int	on_transition_6	(void);
-static int	on_transition_7	(void);
-static int	on_transition_8	(void);
-static int	on_transition_9	(void);
-static int	on_transition_10(void);
-static int	on_transition_11(void);
-static int	on_transition_12(void);
-static int	on_transition_13(void);
-static int	on_transition_14(void);
-static int	on_transition_15(void);
-static int	on_transition_16(void);
+static int	on_transition_0	(co_data* d);
+static int	on_transition_1	(co_data* d);
+static int	on_transition_2	(co_data* d);
+static int	on_transition_3	(co_data* d);
+static int	on_transition_4	(co_data* d);
+static int	on_transition_5	(co_data* d);
+static int	on_transition_6	(co_data* d);
+static int	on_transition_7	(co_data* d);
+static int	on_transition_8	(co_data* d);
+static int	on_transition_9	(co_data* d);
+static int	on_transition_10(co_data* d);
+static int	on_transition_11(co_data* d);
+static int	on_transition_12(co_data* d);
+static int	on_transition_13(co_data* d);
+static int	on_transition_14(co_data* d);
+static int	on_transition_15(co_data* d);
+static int	on_transition_16(co_data* d);
 
 int fsa_state = 0;
 int motor_control = 0;
@@ -44,12 +44,12 @@ const transition_t fsa_transition_list[FSA_NB_TRANSITIONS] = {
 };
 
 // transition 0: self test and init
-static int 	on_transition_0	() {
-	return canopen_driver_init();
+static int 	on_transition_0	(co_data* d) {
+	return canopen_driver_init(d);
 }
 
 // transition 1: activate commm
-static int 	on_transition_1	() {
+static int 	on_transition_1	(co_data* d) {
 	comm_can_set_sid_rx_callback(canopen_sid_callback);
 	/*	TODO
 	timer_id = COTmrCreate(	&(co_node.Tmr),
@@ -59,96 +59,96 @@ static int 	on_transition_1	() {
 			0);
 	*/
 #if CO_FSA_AUTO_TRANSITION == 1
-	return FsaAttemptTransition(2);
+	return FsaAttemptTransition(2, d);
 #endif
 	return 1;
 }
 
 // transition 2: none
-static int 	on_transition_2	() {	
+static int 	on_transition_2	(co_data* d) {	
 #if CO_FSA_AUTO_TRANSITION == 1
-	return FsaAttemptTransition(3);
+	return FsaAttemptTransition(3, d);
 #endif
 	return 1;
 }
 
 // transition 3: motor power on
-static int 	on_transition_3	() {	//TODO
+static int 	on_transition_3	(co_data* d) {	//TODO
 #if CO_FSA_AUTO_TRANSITION == 1
-	return FsaAttemptTransition(4);
+	return FsaAttemptTransition(4, d);
 #endif
 	return 1;
 }
 
 // transition 4: enable motor control 
-static int 	on_transition_4	() {	//TODO
+static int 	on_transition_4	(co_data* d) {	//TODO
 	motor_control = 1;
 	return 1;
 }
 
 // transition 5: disable motor control 
-static int 	on_transition_5	() {	//TODO
+static int 	on_transition_5	(co_data* d) {	//TODO
 	motor_control = 0;
 	return 1;
 }
 
 // transition 6: motor power off 
-static int 	on_transition_6	() {	//TODO
+static int 	on_transition_6	(co_data* d) {	//TODO
 	return 1;
 }
 
 // transition 7: none 
-static int 	on_transition_7	() {	//TODO
+static int 	on_transition_7	(co_data* d) {	//TODO
 	return 1;
 }
 
 // transition 8: motor power off + disable motor control 
-static int 	on_transition_8	() {	
-	return (on_transition_6() + on_transition_5()) == 2 ? 1 : -1;
+static int 	on_transition_8	(co_data* d) {	
+	return (on_transition_6(d) + on_transition_5(d)) == 2 ? 1 : -1;
 }
 
 // transition 9: motor power off + disable motor control 
-static int 	on_transition_9 () {
-	return on_transition_8();
+static int 	on_transition_9 (co_data* d) {
+	return on_transition_8(d);
 }
 
 // transition 10: motor power off  
-static int 	on_transition_10() {
-	return on_transition_6();
+static int 	on_transition_10(co_data* d) {
+	return on_transition_6(d);
 }
 
 // transition 11: quickstop 
-static int 	on_transition_11() {
+static int 	on_transition_11(co_data* d) {
 	mc_interface_set_current(0.0);
 	return 1;
 }
 
 // transition 12: motor power off + disable motor control 
-static int 	on_transition_12() {
-	return on_transition_8();
+static int 	on_transition_12(co_data* d) {
+	return on_transition_8(d);
 }
 
 // transition 13: use configured fault handler function 
-static int 	on_transition_13() {	//TODO
+static int 	on_transition_13(co_data* d) {	//TODO
 	return 1;
 }
 
 // transition 14: motor power off + disable motor control 
-static int 	on_transition_14() {
-	return on_transition_8();
+static int 	on_transition_14(co_data* d) {
+	return on_transition_8(d);
 }
 
 // transition 15: reset fault
-static int 	on_transition_15() {	//TODO
+static int 	on_transition_15(co_data* d) {	//TODO
 	return 1;
 }
 
 //transition 16: enable motor control
-static int 	on_transition_16() {
-	return on_transition_4();
+static int 	on_transition_16(co_data* d) {
+	return on_transition_4(d);
 }
 
-int FsaAttemptTransition(int transition_number) {
+int FsaAttemptTransition(int transition_number, co_data *d) {
 	if (transition_number >= FSA_NB_TRANSITIONS) return -1;	// early return for an invalid transition number
 	transition_t t = fsa_transition_list[transition_number];
 
@@ -156,6 +156,6 @@ int FsaAttemptTransition(int transition_number) {
 	if (t.prev_state != fsa_state) return -1;	// early return for wrong state
 	int result = 1;
 	fsa_state = t.next_state;	// TODO: ensure right state during transition AND automatic transitions
-	if (t.on_transition_cb) result = t.on_transition_cb();	// most transitions should include a callback
+	if (t.on_transition_cb) result = t.on_transition_cb(d);	// most transitions should include a callback
 	return result;
 }

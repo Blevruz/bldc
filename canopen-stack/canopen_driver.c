@@ -7,6 +7,8 @@
 #define OD_SIZE 256	//TODO: replace with better value
 #define OD_END_DW	0xCAFECAFE	//double word that marks the end of the dictionary
 
+co_data *d;	//see warning in canopen_driver.h
+
 co_ring_buffer can_ring_buffer;
 CO_NODE co_node;
 struct CO_IF_DRV_T AppDriver = {
@@ -56,7 +58,7 @@ static int set_od_root (uint32_t new_root) {	//function to synchronise the co_no
 	// root can only be within designated NVM sector (by default sector 8)
 	if (new_root > 0x40000)
 		return -1;
-	VescPkgNvmDriver_offset = new_root;
+	//VescPkgNvmDriver_offset = new_root;
 	AppOD.Root = new_root;
 	co_node_spec.Dict = new_root + OD_NVM_START;
 	co_node.Dict.Root = new_root + OD_NVM_START;	//TODO: check which ones can safely be removed (redundancy)
@@ -82,6 +84,7 @@ static void ObjCpy(CO_OBJ *a, CO_OBJ *b)
 CO_OBJ  t_buffer[TEMP_BUFFER_SIZE];
 uint32_t	t_used = 0;
 
+#if 0
 void	ODEraseNvm(void) {
 	flash_helper_wipe_nvm();
 	set_od_root(0);
@@ -200,27 +203,7 @@ void ODClearBuffer(void) {
 #endif
 }
 
-void ODInit (OD_DYN *self, CO_OBJ *root, uint32_t length)
-{
-    uint32_t  idx;
-    CO_OBJ    end = CO_OBJ_DIR_ENDMARK;
-    CO_OBJ   *od;
-
-    idx = 0;
-    od  = root;
-    while (idx < length) {
-        ObjCpy(self->Root, &end);
-        od++;
-        idx++;
-    }
-
-    self->Root   = root;
-    self->Length = length - 1;
-    self->Used   = 0;
-
-}
-
-int ODAddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA data, CO_IF_DRV* driver)
+int ODf_AddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA data, CO_IF_DRV* driver)
 {	//Copied wholesale from canopen-stack/example/dynamic-od/app/app_dict.c then modified
     CO_OBJ  temp;
 
@@ -234,16 +217,17 @@ int ODAddUpdate(OD_DYN *self, uint32_t key, const CO_OBJ_TYPE *type, CO_DATA dat
 
     return ODEntryToBuffer(driver, self, &temp);
 }
+#endif
 
-static void ODCreateSDOServer(OD_DYN *self, uint8_t srv, uint32_t request, uint32_t response, CO_IF_DRV* driver)
+static void ODCreateSDOServer(uint8_t srv, uint32_t request, uint32_t response, OD_BUFF* obj_buff)
 {
     if (srv == 0) {
         request  = (uint32_t)0x600;
         response = (uint32_t)0x580;
     }
-    ODAddUpdate(self, CO_KEY(0x1200+srv, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(0x02), driver);
-    ODAddUpdate(self, CO_KEY(0x1200+srv, 1, CO_UNSIGNED32|CO_OBJ_DN_R_), 0, (CO_DATA)(request), driver);
-    ODAddUpdate(self, CO_KEY(0x1200+srv, 2, CO_UNSIGNED32|CO_OBJ_DN_R_), 0, (CO_DATA)(response), driver);
+    ODf_AddUpdate(CO_KEY(0x1200+srv, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(0x02), 	obj_buff);
+    ODf_AddUpdate(CO_KEY(0x1200+srv, 1, CO_UNSIGNED32|CO_OBJ_DN_R_), 0, (CO_DATA)(request), 	obj_buff);
+    ODf_AddUpdate(CO_KEY(0x1200+srv, 2, CO_UNSIGNED32|CO_OBJ_DN_R_), 0, (CO_DATA)(response), 	obj_buff);
 }
 
 //mandatory entries for CiA301 compliance
@@ -259,7 +243,7 @@ uint32_t ODList [ODLIST_SIZE] = {	CO_KEY(0x1000, 0, CO_UNSIGNED32|CO_OBJ_D__R_),
                       			CO_KEY(0x1018, 4, CO_UNSIGNED32|CO_OBJ_D__R_)};	//  | Serial number
 
 /* function to setup the quickstart object dictionary */
-static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
+static int ODCreateDict(CO_IF_DRV* driver, OD_BUFF* obj_buff)
 {
 
 	//TODO:
@@ -293,7 +277,7 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 	odindex += 3;	//assume it must have been a valid entry and move on
     }
     //self->Used += odindex/3;
-    if (self->Used < odindex/3) self->Used = odindex/3;
+    if (obj_buff->used < odindex/3) obj_buff->used = odindex/3;
     //if (matches == ODLIST_SIZE) return;		//we have a functional minimal OD: nothing to do here
 
     if (matches != ODLIST_SIZE) {
@@ -304,26 +288,36 @@ static void ODCreateDict(OD_DYN *self, CO_IF_DRV* driver)
 
    	 Obj1001_00_08 = 0;
 
-   	 ODAddUpdate(self, CO_KEY(0x1000, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x00000000), driver);
-   	 ODAddUpdate(self, CO_KEY(0x1001, 0, CO_UNSIGNED8 |CO_OBJ___PR_), 0, (CO_DATA)(&Obj1001_00_08), driver);
-   	 ODAddUpdate(self, CO_KEY(0x1005, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x80), driver);	//TODO: add node ID to that
-   	 ODAddUpdate(self, CO_KEY(0x1017, 0, CO_UNSIGNED16|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
-   	 ODAddUpdate(self, CO_KEY(0x1018, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(4), driver);
-   	 ODAddUpdate(self, CO_KEY(0x1018, 1, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
-   	 ODAddUpdate(self, CO_KEY(0x1018, 2, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
-   	 ODAddUpdate(self, CO_KEY(0x1018, 3, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
-   	 ODAddUpdate(self, CO_KEY(0x1018, 4, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), driver);
+   	 ODf_AddUpdate( CO_KEY(0x1000, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x00000000), 	obj_buff);
+   	 ODf_AddUpdate( CO_KEY(0x1001, 0, CO_UNSIGNED8 |CO_OBJ___PR_), 0, (CO_DATA)(&Obj1001_00_08), 	obj_buff);
+   	 ODf_AddUpdate( CO_KEY(0x1005, 0, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0x80), 		obj_buff);	//TODO: add node ID to that
+   	 ODf_AddUpdate( CO_KEY(0x1017, 0, CO_UNSIGNED16|CO_OBJ_D__R_), 0, (CO_DATA)(0), obj_buff);
+   	 ODf_AddUpdate( CO_KEY(0x1018, 0, CO_UNSIGNED8 |CO_OBJ_D__R_), 0, (CO_DATA)(4), obj_buff);
+   	 ODf_AddUpdate( CO_KEY(0x1018, 1, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), obj_buff);
+   	 ODf_AddUpdate( CO_KEY(0x1018, 2, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), obj_buff);
+   	 ODf_AddUpdate( CO_KEY(0x1018, 3, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), obj_buff);
+   	 ODf_AddUpdate( CO_KEY(0x1018, 4, CO_UNSIGNED32|CO_OBJ_D__R_), 0, (CO_DATA)(0), obj_buff);
 
-   	 ODCreateSDOServer(self, 0, CO_COBID_SDO_REQUEST(), CO_COBID_SDO_RESPONSE(), driver);
+   	 ODCreateSDOServer(0, CO_COBID_SDO_REQUEST(), CO_COBID_SDO_RESPONSE(), obj_buff);
 	
    }
-   ODNvmToBuffer(driver, self);	//we shouldnt have written to NVM by now, but just in case...
+   ODf_NvmToBuffer(driver, obj_buff);	//we shouldnt have written to NVM by now, but just in case...
    if (!get_canopen_ready()) {
-	   ODEraseNvm();	// wiping nvm causes crash after startup for some reason
-	   self->Used = 0;
+	   ODf_EraseNvm();	// wiping nvm causes crash after startup for some reason
    }
-   ODBufferToNvm(driver, self);
-   ODClearBuffer();
+   ODf_BufferToNvm(driver, obj_buff);
+   ODf_ClearBuffer(obj_buff);
+   
+   int index = 0;
+   int offset = 0;
+   int read = 0;
+   ODf_GetActiveOD(&index, &offset);
+   flash_helper_read_nvm(&read, 1, index-1);
+   offset -= read*OD_ENTRY_SIZE;
+   index = OD_NVM_END_DW;
+   flash_helper_write_nvm(&index, 4, OD_NVM_MAX_NB);
+   set_od_root(offset);
+   return 1;
 }
 
 // END OD SECTION
@@ -352,9 +346,10 @@ void co_vt_update(void *p) {
 
 }
 
-int	canopen_driver_init(void) {
+int	canopen_driver_init(co_data* d) {
 
 	co_node_spec.NodeId = app_get_configuration()->controller_id;
+	ODf_ClearBuffer(&(d->obj_buff));
 #if OD == STATIC
 	FLASH_Unlock();
 	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
@@ -364,7 +359,7 @@ int	canopen_driver_init(void) {
 	FLASH_Lock();
 #endif
 	/* Setup the object dictionary during runtime */
-	ODCreateDict(&AppOD, &AppDriver);
+	ODCreateDict(&AppDriver, &(d->obj_buff));
 	
 	/* Create a node with generated object dictionary */
 	CONodeInit(&co_node, &co_node_spec);
